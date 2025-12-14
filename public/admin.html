@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — Админ</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="header-container">
+      <div class="header-brand">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <p class="header-tagline">Админ-панель</p>
+      </div>
+      <button onclick="location.href='/'" class="btn secondary" style="margin-left:auto;">На главную</button>
+    </div>
+  </header>
+  <main class="container">
+    <div class="card">
+      <label>Ключ администратора<br><input id="adminKey" type="password"></label>
+      <div class="actions">
+        <button id="loginBtn" class="btn">Войти</button>
+        <button id="exportBtn" class="btn muted">Экспорт CSV</button>
+      </div>
+    </div>
+
+    <div id="adminArea" style="display:none;">
+      <h2>Заявки</h2>
+      <table id="appsTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Имя</th>
+            <th>Контакт</th>
+            <th>Адрес</th>
+            <th>Категория</th>
+            <th>Цена</th>
+            <th>Дата создания</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </main>
+  <script src="/app.js"></script>
+</body>
+
+</html>

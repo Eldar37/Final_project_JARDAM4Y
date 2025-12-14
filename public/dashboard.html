@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — Личный кабинет</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .dashboard-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .message { padding: 12px 16px; margin-bottom: 20px; border-radius: var(--radius); font-weight: 600; font-size: 14px; display: none; }
+    .message.show { display: block; animation: fadeInDown 0.3s ease; }
+    .message.success { background: #d1fae5; color: #065f46; }
+    .message.error { background: #fee2e2; color: #991b1b; }
+    .form-toggle { margin-bottom: 24px; }
+    .applications-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+    .app-card { background: var(--card); padding: 20px; border-radius: var(--radius); box-shadow: 0 4px 12px var(--shadow); border-left: 4px solid var(--primary); }
+    .app-card:hover { transform: translateY(-4px); box-shadow: 0 8px 20px var(--shadow); }
+    .app-card h4 { margin: 0 0 8px 0; color: var(--primary); font-size: 16px; }
+    .app-card p { margin: 6px 0; font-size: 13px; color: var(--muted); }
+    .app-card .description { color: var(--text); font-size: 14px; margin: 12px 0; }
+    .app-card .price { font-weight: 600; color: var(--accent); margin: 12px 0; }
+    .app-buttons { display: flex; gap: 8px; margin-top: 12px; }
+    .app-buttons .btn { flex: 1; padding: 8px 12px; font-size: 12px; }
+    .btn-delete { background: #ef4444; color: white; }
+    .btn-delete:hover { background: #dc2626; }
+    .form-section { display: none; }
+    .form-section.show { display: block; }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .loading { text-align: center; padding: 40px; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-container">
+      <div class="header-brand">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <p class="header-tagline">Личный кабинет</p>
+      </div>
+      <button onclick="location.href='/'" class="btn secondary" style="margin-left:auto;">На главную</button>
+    </div>
+  </header>
+
+  <main class="dashboard-container">
+    <!-- Сообщение об успехе/ошибке -->
+    <div id="message" class="message"></div>
+
+    <!-- Кнопка создания -->
+    <div class="form-toggle">
+      <button id="toggleFormBtn" class="btn primary">+ Создать новую заявку</button>
+    </div>
+
+    <!-- Форма создания/редактирования -->
+    <div id="formSection" class="form-section">
+      <div class="card">
+        <h3 id="formTitle">➕ Создать новую заявку</h3>
+        <form id="applicationForm">
+          <div class="form-group">
+            <label>Имя *</label>
+            <input type="text" name="name" required placeholder="Введите ваше имя">
+          </div>
+
+          <div class="form-group">
+            <label>Контакт (телефон/WhatsApp) *</label>
+            <input type="text" name="contact" required placeholder="+966 552345346">
+          </div>
+
+          <div class="form-group">
+            <label>Категория *</label>
+            <select name="category" required>
+              <option value="">Выберите категорию</option>
+              <option value="Няня (для детей)">Няня (для детей)</option>
+              <option value="Няня (пожилые)">Няня (пожилые)</option>
+              <option value="Бытовые услуги">Бытовые услуги</option>
+              <option value="Уход за животными">Уход за животными</option>
+              <option value="Другие услуги">Другие услуги</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Описание задания</label>
+            <textarea name="description" placeholder="Подробное описание вашего задания..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Дата/Время выполнения</label>
+            <input type="datetime-local" name="datetime">
+          </div>
+
+          <div class="form-group">
+            <label>Цена</label>
+            <input type="text" name="price" placeholder="например: 500 руб.">
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn primary">✓ Создать заявку</button>
+            <button type="button" class="btn muted" onclick="resetForm()">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Список заявок -->
+    <div>
+      <h2 style="margin-bottom: 20px; color: var(--primary);">📋 Ваши заявки (<span id="appCount">0</span>)</h2>
+      <div id="loadingState" class="loading">⏳ Загрузка...</div>
+      <div id="emptyState" class="empty-state" style="display: none;">📭 У вас нет заявок. Создайте первую!</div>
+      <div id="applicationsList" class="applications-grid"></div>
+    </div>
+  </main>
+
+  <footer class="site-footer">© JARDAM4Y — MVP</footer>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/auth.html'; return; }
+    let applications = [];
+    let editingId = null;
+
+    // Инициализация
+    document.addEventListener('DOMContentLoaded', () => {
+      loadApplications();
+      document.getElementById('toggleFormBtn').addEventListener('click', toggleForm);
+      document.getElementById('applicationForm').addEventListener('submit', handleSubmit);
+    });
+
+    // Загрузка заявок
+    async function loadApplications() {
+      try {
+        const res = await fetch('/api/applications/my', { headers: { 'x-session-token': token } });
+        if (res.status === 401) {
+          window.location.href = '/auth.html';
+          return;
+        }
+        applications = await res.json() || [];
+        renderApplications();
+        document.getElementById('loadingState').style.display = 'none';
+      } catch (err) {
+        console.error('Ошибка загрузки:', err);
+        showMessage('❌ Ошибка при загрузке заявок', 'error');
+        document.getElementById('loadingState').style.display = 'none';
+      }
+    }
+
+    // Отображение заявок
+    function renderApplications() {
+      const list = document.getElementById('applicationsList');
+      const count = document.getElementById('appCount');
+      count.textContent = applications.length;
+
+      if (applications.length === 0) {
+        list.innerHTML = '';
+        document.getElementById('emptyState').style.display = 'block';
+        return;
+      }
+
+      document.getElementById('emptyState').style.display = 'none';
+      list.innerHTML = applications.map(app => `
+        <div class="app-card">
+          <h4>${app.name}</h4>
+          <p>📞 ${app.contact}</p>
+          <p>🏷️ ${app.category}</p>
+          ${app.description ? `<p class="description">📝 ${app.description}</p>` : ''}
+          ${app.datetime ? `<p>📅 ${new Date(app.datetime).toLocaleDateString('ru-RU')}</p>` : ''}
+          ${app.price ? `<p class="price">💰 ${app.price}</p>` : ''}
+          <div class="app-buttons">
+            <button class="btn primary" onclick="editApplication(${app.id})">✏️ Редактировать</button>
+            <button class="btn btn-delete" onclick="deleteApplication(${app.id})">🗑️ Удалить</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Переключение формы
+    function toggleForm() {
+      const form = document.getElementById('formSection');
+      const btn = document.getElementById('toggleFormBtn');
+      form.classList.toggle('show');
+      btn.textContent = form.classList.contains('show') ? '✕ Закрыть форму' : '+ Создать новую заявку';
+    }
+
+    // Отправка формы (CREATE)
+    async function handleSubmit(e) {
+      e.preventDefault();
+      const formData = new FormData(document.getElementById('applicationForm'));
+      const data = Object.fromEntries(formData);
+
+      if (editingId) {
+        await updateApplication(editingId, data);
+      } else {
+        await createApplication(data);
+      }
+    }
+
+    // CREATE
+    async function createApplication(data) {
+      try {
+        const res = await fetch('/api/applications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-session-token': token },
+          body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+          resetForm();
+          loadApplications();
+          showMessage('✅ Заявка создана успешно!', 'success');
+        } else {
+          showMessage('❌ Ошибка при создании заявки', 'error');
+        }
+      } catch (err) {
+        console.error('Ошибка:', err);
+        showMessage('❌ Ошибка при создании заявки', 'error');
+      }
+    }
+
+    // UPDATE
+    async function updateApplication(id, data) {
+      try {
+        const res = await fetch(`/api/applications/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+          resetForm();
+          loadApplications();
+          showMessage('✅ Заявка обновлена успешно!', 'success');
+        } else {
+          showMessage(`❌ Ошибка: ${result.error}`, 'error');
+        }
+      } catch (err) {
+        console.error('Ошибка:', err);
+        showMessage(`❌ Ошибка при обновлении: ${err.message}`, 'error');
+      }
+    }
+
+    // DELETE
+    async function deleteApplication(id) {
+      if (!confirm('Вы уверены, что хотите удалить эту заявку?')) return;
+
+      try {
+        console.log('Attempting to delete application:', id);
+        const res = await fetch(`/api/applications/${id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        console.log('Response status:', res.status);
+        const text = await res.text();
+        console.log('Response text:', text);
+        
+        let result;
+        try {
+          result = JSON.parse(text);
+        } catch (e) {
+          console.error('Failed to parse JSON:', text.substring(0, 100));
+          showMessage(`❌ Ошибка сервера: получен невалидный ответ`, 'error');
+          return;
+        }
+        
+        if (res.ok && result.success) {
+          loadApplications();
+          showMessage('✅ Заявка удалена успешно!', 'success');
+        } else {
+          showMessage(`❌ Ошибка: ${result.error || 'Не удалось удалить'}`, 'error');
+        }
+      } catch (err) {
+        console.error('Ошибка при удалении:', err);
+        showMessage(`❌ Ошибка сети: ${err.message}`, 'error');
+      }
+    }
+
+    // Редактирование
+    function editApplication(id) {
+      const app = applications.find(a => a.id === id);
+      if (!app) return;
+
+      editingId = id;
+      const form = document.getElementById('applicationForm');
+      form.name.value = app.name;
+      form.contact.value = app.contact;
+      form.category.value = app.category;
+      form.description.value = app.description || '';
+      form.datetime.value = app.datetime || '';
+      form.price.value = app.price || '';
+
+      document.getElementById('formTitle').textContent = '✏️ Редактировать заявку';
+      document.querySelector('#applicationForm button[type="submit"]').textContent = '💾 Сохранить изменения';
+      document.getElementById('formSection').classList.add('show');
+      document.getElementById('toggleFormBtn').textContent = '✕ Закрыть форму';
+    }
+
+    // Сброс формы
+    function resetForm() {
+      editingId = null;
+      document.getElementById('applicationForm').reset();
+      document.getElementById('formTitle').textContent = '➕ Создать новую заявку';
+      document.querySelector('#applicationForm button[type="submit"]').textContent = '✓ Создать заявку';
+      document.getElementById('formSection').classList.remove('show');
+      document.getElementById('toggleFormBtn').textContent = '+ Создать новую заявку';
+    }
+
+    // Сообщение
+    function showMessage(text, type) {
+      const msg = document.getElementById('message');
+      msg.textContent = text;
+      msg.className = `message show ${type}`;
+      setTimeout(() => msg.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>

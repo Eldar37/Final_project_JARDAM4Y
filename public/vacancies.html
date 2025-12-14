@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — Вакансии</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-container">
+      <div class="header-brand">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <p class="header-tagline">Список вакансий</p>
+      </div>
+      <button onclick="location.href='/'" class="btn secondary" style="margin-left:auto;">На главную</button>
+    </div>
+  </header>
+  <main class="container">
+    <div id="vacanciesList"></div>
+
+    <div id="vacancyModal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <button id="closeVacancy" class="btn muted">Закрыть</button>
+        <div id="vacancyDetail"></div>
+      </div>
+    </div>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

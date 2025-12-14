@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — помощь рядом</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="header-container">
+      <div class="header-brand">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <p class="header-tagline">Социальная платформа Enactus МУЦА</p>
+      </div>
+      <div class="header-actions">
+        <span id="userName" class="user-name"></span>
+        <button onclick="location.href='/dashboard.html'" class="icon-btn" title="Личный кабинет">
+          <i class="fas fa-user"></i>
+        </button>
+        <button onclick="logout()" class="icon-btn logout-btn" title="Выход">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <div class="buttons">
+        <button onclick="location.href='/employer.html'" class="btn primary">Для работодателя</button>
+        <button onclick="location.href='/vacancies.html'" class="btn primary">Список вакансий</button>
+        <!-- <button onclick="location.href='/admin.html'" class="btn accent">Админ-панель</button> -->
+      </div>
+    </section>
+    <section>
+      <h2>Как это работает</h2>
+      <ul>
+        <li>Работодатель оставляет заявку</li>
+        <li>Соискатель просматривает вакансии</li>
+        <li>Менеджер видит все заявки в админке</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div class="footer-column">
+        <h3>JARDAM4Y</h3>
+        <p>Это социальная платформа, созданная командой Enactus МУЦА. Наша цель — помочь жителям города Токмок справляться с бытовыми и семейными задачами.</p>
+      </div>
+      <div class="footer-column">
+        <h3>Контакты</h3>
+        <ul class="footer-links">
+          <li><i class="fa-solid fa-location-dot"></i> г. Токмок, ул. Сарыбагышева 1</li>
+          <li><i class="fa-solid fa-envelope"></i> enactus@iuca.kg</li>
+          <li><i class="fa-solid fa-phone"></i> 996 700399535</li>
+        </ul>
+      </div>
+      <div class="footer-column">
+        <h3>Поддержка</h3>
+        <div class="social-links">
+          <a href="https://wa.me/996700399535" target="_blank" class="social-btn whatsapp">
+            <i class="fa-brands fa-whatsapp"></i> Написать в WhatsApp
+          </a>
+          <a href="https://instagram.com/enactus_iuca" target="_blank" class="social-btn instagram">
+            <i class="fa-brands fa-instagram"></i> Instagram
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      © 2024 JARDAM4Y — MVP. Все права защищены.
+    </div>
+  </footer>
+
+
+  <script>
+    // Проверка авторизации
+    window.addEventListener('load', () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        location.href = '/auth.html';
+        return;
+      }
+
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      document.getElementById('userName').textContent = user.name || 'Пользователь';
+    });
+
+    // Выход
+    function logout() {
+      if (confirm('Вы уверены, что хотите выйти?')) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        location.href = '/auth.html';
+      }
+    }
+  </script>
+</body>
+
+
+
+</html>

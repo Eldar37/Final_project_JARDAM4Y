@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — Вход</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .auth-container {
+      max-width: 400px;
+      margin: 60px auto;
+      padding: 20px;
+    }
+
+    .auth-card {
+      background: var(--card);
+      padding: 40px;
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px var(--shadow);
+    }
+
+    .auth-header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .auth-header h1 {
+      color: var(--primary);
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .auth-header p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .auth-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 24px;
+      border-bottom: 2px solid #E5E7EB;
+    }
+
+    .auth-tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      cursor: pointer;
+      font-weight: 500;
+      color: var(--muted);
+      border-bottom: 3px solid transparent;
+      transition: all 0.3s;
+    }
+
+    .auth-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .auth-form {
+      display: none;
+    }
+
+    .auth-form.show {
+      display: block;
+    }
+
+    .message {
+      padding: 12px;
+      margin-bottom: 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      display: none;
+    }
+
+    .message.show {
+      display: block;
+      animation: fadeInDown 0.3s ease;
+    }
+
+    .message.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .message.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #CBD5E1;
+      border-radius: var(--radius);
+      font-size: 14px;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1);
+    }
+
+    .auth-button {
+      width: 100%;
+      padding: 14px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s;
+    }
+
+    .auth-button:hover {
+      background: #1a2a5e;
+      transform: translateY(-2px);
+    }
+
+    .auth-button:active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+
+<body style="background: var(--bg);">
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo" style="margin: 0 auto 8px auto;">
+        <p>Платформа для работодателей и исполнителей</p>
+      </div>
+
+      <div id="message" class="message"></div>
+
+      <div class="auth-tabs">
+        <div class="auth-tab active" onclick="switchTab('login')">Вход</div>
+        <div class="auth-tab" onclick="switchTab('register')">Регистрация</div>
+      </div>
+
+      <!-- Форма входа -->
+      <form id="loginForm" class="auth-form show" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" name="email" required placeholder="your@email.com">
+        </div>
+
+        <div class="form-group">
+          <label>Пароль *</label>
+          <input type="password" name="password" required placeholder="••••••••">
+        </div>
+
+        <button type="submit" class="auth-button">Войти</button>
+      </form>
+
+      <!-- Форма регистрации -->
+      <form id="registerForm" class="auth-form" onsubmit="handleRegister(event)">
+        <div class="form-group">
+          <label>Имя *</label>
+          <input type="text" name="name" required placeholder="Ваше имя">
+        </div>
+
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" name="email" required placeholder="your@email.com">
+        </div>
+
+        <div class="form-group">
+          <label>Пароль *</label>
+          <input type="password" name="password" required placeholder="••••••••" minlength="3">
+        </div>
+
+        <div class="form-group">
+          <label>Подтвердите пароль *</label>
+          <input type="password" name="confirmPassword" required placeholder="••••••••" minlength="3">
+        </div>
+
+        <button type="submit" class="auth-button">Зарегистрироваться</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Переключение вкладок
+    function switchTab(tab) {
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('show'));
+
+      event.target.classList.add('active');
+      document.getElementById(tab + 'Form').classList.add('show');
+    }
+
+    // Показать сообщение
+    function showMessage(text, type) {
+      const msg = document.getElementById('message');
+      msg.textContent = text;
+      msg.className = `message show ${type}`;
+      setTimeout(() => msg.classList.remove('show'), 3000);
+    }
+
+    // Регистрация
+    async function handleRegister(e) {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData);
+
+      if (data.password !== data.confirmPassword) {
+        showMessage('Пароли не совпадают', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: data.name,
+            email: data.email,
+            password: data.password
+          })
+        });
+
+        const result = await res.json();
+
+        if (result.success) {
+          showMessage('Регистрация успешна! Выполняем вход...', 'success');
+          localStorage.setItem('token', result.token);
+          localStorage.setItem('user', JSON.stringify(result.user));
+          setTimeout(() => location.href = '/index.html', 1500);
+        } else {
+          showMessage(result.error || 'Ошибка регистрации', 'error');
+        }
+      } catch (err) {
+        console.error('Error:', err);
+        showMessage('Ошибка сети', 'error');
+      }
+    }
+
+    // Вход
+    async function handleLogin(e) {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData);
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: data.email,
+            password: data.password
+          })
+        });
+
+        const result = await res.json();
+
+        if (result.success) {
+          showMessage('Вход успешен!', 'success');
+          localStorage.setItem('token', result.token);
+          localStorage.setItem('user', JSON.stringify(result.user));
+          setTimeout(() => location.href = '/index.html', 1500);
+        } else {
+          showMessage(result.error || 'Ошибка входа', 'error');
+        }
+      } catch (err) {
+        console.error('Error:', err);
+        showMessage('Ошибка сети', 'error');
+      }
+    }
+
+    // Проверка авторизации при загрузке
+    window.addEventListener('load', () => {
+      if (localStorage.getItem('token')) {
+        location.href = '/index.html';
+      }
+    });
+  </script>
+</body>
+
+</html>
