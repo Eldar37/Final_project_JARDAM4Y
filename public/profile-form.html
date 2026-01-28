@@ -1,0 +1,140 @@
+﻿<!doctype html>
+<html lang="ru">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — Профиль исполнителя</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="header-container">
+      <div class="header-brand">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <p class="header-tagline">Профиль исполнителя</p>
+      </div>
+      <button onclick="location.href='/worker.html'" class="btn secondary" style="margin-left:auto;">Назад</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="formMessage" class="message"></div>
+
+    <form id="profileForm" class="card" data-requires-auth="true">
+      <h3 id="profileFormTitle">Создайте профиль исполнителя</h3>
+      <p class="hero-subtitle">Чтобы работодатели могли вас найти и пригласить на подработку</p>
+
+      <label>Имя
+        <input type="text" name="name" required>
+      </label>
+
+      <label>Телефон (WhatsApp)
+        <input type="text" name="phone" required placeholder="+996 700 123 456">
+      </label>
+
+      <label>Категории работ
+        <div id="profileCategories" class="chip-group" data-target="profileCategoriesInput"></div>
+        <input type="hidden" id="profileCategoriesInput" name="categories">
+      </label>
+
+      <label>Кем могу быть (1 строка)
+        <input type="text" name="headline" placeholder="Например: Няня, помощник по дому" required>
+      </label>
+
+      <label>Доступность / график
+        <div id="profileAvailability" class="chip-group" data-target="profileAvailabilityInput"></div>
+        <input type="hidden" id="profileAvailabilityInput" name="availability">
+      </label>
+
+      <div class="field-row">
+        <label>Оплата ожидание — от (сом)
+          <input type="number" name="payMin" min="0" placeholder="Например: 300" required>
+        </label>
+        <label>Тип оплаты
+          <select name="payType" required>
+            <option value="">Выберите</option>
+            <option value="hour">час</option>
+            <option value="shift">смена</option>
+            <option value="fixed">работа</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>Город
+          <select name="city" required>
+            <option value="">Выберите</option>
+            <option value="Токмок">Токмок</option>
+            <option value="Бишкек">Бишкек</option>
+            <option value="Кант">Кант</option>
+            <option value="Кара-Балта">Кара-Балта</option>
+            <option value="Чуй">Чуй</option>
+            <option value="Другое">Другое</option>
+          </select>
+        </label>
+        <label>Район / ориентир
+          <input type="text" name="locationText" placeholder="Например: центр, рядом с автовокзалом" required>
+        </label>
+      </div>
+
+      <label>Описание (до 800 символов)
+        <textarea name="about" rows="5" maxlength="800" placeholder="Опыт, навыки, что важно знать" required></textarea>
+      </label>
+
+      <div class="field-row">
+        <label>Возраст (опционально)
+          <input type="number" name="age" min="16" max="80" placeholder="Например: 24">
+        </label>
+        <label>Опыт
+          <select name="experienceLevel">
+            <option value="">Не указывать</option>
+            <option value="0–1 год">0–1 год</option>
+            <option value="1–3 года">1–3 года</option>
+            <option value="3+ лет">3+ лет</option>
+          </select>
+        </label>
+      </div>
+
+      <fieldset>
+        <legend>Языки</legend>
+        <div class="chip-group">
+          <label class="chip"><input type="checkbox" name="languages" value="Русский"> Русский</label>
+          <label class="chip"><input type="checkbox" name="languages" value="Кыргызский"> Кыргызский</label>
+          <label class="chip"><input type="checkbox" name="languages" value="Английский"> Английский</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Формат работы</legend>
+        <div class="chip-group">
+          <label class="chip"><input type="checkbox" name="workFormat" value="Разово"> Разово</label>
+          <label class="chip"><input type="checkbox" name="workFormat" value="Регулярно"> Регулярно</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Способ связи</legend>
+        <div class="chip-group">
+          <label class="chip"><input type="checkbox" name="contactMethods" value="Звонок"> Звонок</label>
+          <label class="chip"><input type="checkbox" name="contactMethods" value="WhatsApp"> WhatsApp</label>
+          <label class="chip"><input type="checkbox" name="contactMethods" value="Внутри платформы"> Внутри платформы</label>
+        </div>
+      </fieldset>
+
+      <label>Теги (через запятую)
+        <input type="text" name="tags" placeholder="например: дети, уборка">
+      </label>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" id="profileSubmit">Опубликовать профиль</button>
+        <button type="button" class="btn muted" onclick="location.href='/worker.html'">Отмена</button>
+      </div>
+    </form>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>

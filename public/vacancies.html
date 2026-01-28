@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
@@ -11,18 +11,63 @@
     <div class="header-container">
       <div class="header-brand">
         <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
-        <p class="header-tagline">Список вакансий</p>
+        <p class="header-tagline">Вакансии</p>
       </div>
       <button onclick="location.href='/'" class="btn secondary" style="margin-left:auto;">На главную</button>
     </div>
   </header>
   <main class="container">
-    <div id="vacanciesList"></div>
+    <div id="pageMessage" class="message"></div>
+
+    <div class="filters">
+      <div class="search-bar">
+        <input id="vacancySearch" type="text" placeholder="Поиск: няня, уборка, курьер…">
+        <button id="vacancySearchBtn" class="btn primary">Найти</button>
+        <button id="vacancyResetBtn" class="btn muted">Сбросить</button>
+      </div>
+
+      <div class="filters-grid">
+        <div>
+          <label>Категория</label>
+          <div id="vacancyFilterCategories" class="chip-group" data-target="vacancyFilterCategoriesInput"></div>
+          <input type="hidden" id="vacancyFilterCategoriesInput">
+        </div>
+        <div>
+          <label>График / доступность</label>
+          <div id="vacancyFilterSchedule" class="chip-group" data-target="vacancyFilterScheduleInput"></div>
+          <input type="hidden" id="vacancyFilterScheduleInput">
+        </div>
+        <div>
+          <label>Оплата от</label>
+          <input id="vacancyPayMin" type="number" min="0" placeholder="от">
+        </div>
+        <div>
+          <label>Оплата до</label>
+          <input id="vacancyPayMax" type="number" min="0" placeholder="до">
+        </div>
+        <div>
+          <label>Дата</label>
+          <input id="vacancyDate" type="date">
+          <div class="inline-check">
+            <input type="checkbox" id="vacancyFlexibleOnly">
+            <label for="vacancyFlexibleOnly">По договорённости</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="vacanciesLoader" class="loader" style="display:none;">Загрузка...</div>
+    <div id="vacanciesEmpty" class="loader" style="display:none;">Пока нет подходящих вакансий.</div>
+    <div id="vacanciesList" class="jobs-grid"></div>
 
     <div id="vacancyModal" class="modal" style="display:none;">
       <div class="modal-content">
-        <button id="closeVacancy" class="btn muted">Закрыть</button>
-        <div id="vacancyDetail"></div>
+        <button id="closeVacancy" class="modal-close">×</button>
+        <div id="vacancyDetail" class="modal-detail"></div>
+        <div class="card-actions">
+          <button id="vacancyEditBtn" class="btn secondary">Редактировать</button>
+          <button id="vacancyDeleteBtn" class="btn btn-delete">Удалить</button>
+        </div>
       </div>
     </div>
   </main>

@@ -1,0 +1,95 @@
+﻿<!doctype html>
+<html lang="ru">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — Вакансия</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="header-container">
+      <div class="header-brand">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <p class="header-tagline">Создание вакансии</p>
+      </div>
+      <button onclick="location.href='/employer.html'" class="btn secondary" style="margin-left:auto;">Назад</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="formMessage" class="message"></div>
+
+    <form id="vacancyForm" class="card" data-requires-auth="true">
+      <h3 id="vacancyFormTitle">Опубликовать вакансию</h3>
+
+      <label>Контактное имя (как к вам обращаться)
+        <input type="text" name="contactName" required>
+      </label>
+
+      <label>Телефон (WhatsApp)
+        <input type="text" name="phone" required placeholder="+996 700 123 456">
+        <div class="form-hint">Укажите номер, по которому удобно связаться</div>
+      </label>
+
+      <label>Район / ориентир
+        <input type="text" name="locationText" placeholder="Например: 7 мкр, рядом с рынком">
+      </label>
+
+      <label>Категория
+        <div id="vacancyCategories" class="chip-group" data-target="vacancyCategoryInput"></div>
+        <input type="hidden" id="vacancyCategoryInput" name="categoryIds">
+      </label>
+
+      <label>Короткий заголовок
+        <input type="text" name="title" placeholder="Например: Нужна няня на вечер" required>
+      </label>
+
+      <label>Краткое описание задания
+        <textarea name="description" rows="4" placeholder="Что нужно сделать? На сколько времени? Важные детали" maxlength="1000" required></textarea>
+      </label>
+
+      <label>График / доступность
+        <div id="vacancySchedule" class="chip-group" data-target="vacancyScheduleInput"></div>
+        <input type="hidden" id="vacancyScheduleInput" name="schedule">
+      </label>
+
+      <label>Дата / Время выполнения
+        <input type="datetime-local" name="dateTime">
+        <div class="inline-check">
+          <input type="checkbox" id="flexibleTime" name="isFlexibleTime">
+          <label for="flexibleTime">По договорённости</label>
+        </div>
+      </label>
+
+      <div class="field-row">
+        <label>Оплата (сом/час или за работу)
+          <input type="number" name="payAmount" min="0" placeholder="Например: 500">
+        </label>
+        <label>Тип оплаты
+          <select name="payType">
+            <option value="">Выберите</option>
+            <option value="hour">за час</option>
+            <option value="shift">за смену</option>
+            <option value="fixed">за работу</option>
+          </select>
+        </label>
+      </div>
+
+      <label>Теги (через запятую)
+        <input type="text" name="tags" placeholder="например: уборка, помощник">
+      </label>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" id="vacancySubmit">Опубликовать вакансию</button>
+        <button type="button" class="btn muted" onclick="location.href='/employer.html'">Отмена</button>
+      </div>
+    </form>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>

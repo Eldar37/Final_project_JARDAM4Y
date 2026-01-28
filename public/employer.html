@@ -1,10 +1,10 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ru">
 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>JARDAM4Y — Создать заявку</title>
+  <title>JARDAM4Y — Работодатель</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 
@@ -13,52 +13,30 @@
     <div class="header-container">
       <div class="header-brand">
         <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
-        <p class="header-tagline">Создать заявку</p>
+        <p class="header-tagline">Работодатель</p>
       </div>
       <button onclick="location.href='/'" class="btn secondary" style="margin-left:auto;">На главную</button>
     </div>
   </header>
+
   <main class="container">
-    <form id="applicationForm" class="card">
-      <label>Имя<br><input type="text" name="name" required></label>
-      <label>Контакт (телефон / WhatsApp)<br><input type="text" name="contact" required></label>
-      <label>Адрес<br><input type="text" name="address" placeholder="г. Токмок, улица..." required></label>
-
-      <label>Категория<br>
-        <input type="text" id="categoryInput" name="category" readonly placeholder="Выберите категорию" required>
-        <button type="button" id="openCategories">Выбрать</button>
-      </label>
-
-      <div id="otherCategoryContainer" style="display:none;">
-        <label>Другая категория<br><input type="text" name="otherCategoryText"></label>
+    <section class="card">
+      <h2>Работодатель</h2>
+      <p class="hero-subtitle">Создайте вакансию или найдите подходящего исполнителя.</p>
+      <div class="role-grid">
+        <div class="role-card">
+          <h3>Создать вакансию</h3>
+          <p>Опишите задачу и условия оплаты.</p>
+          <button class="btn primary" onclick="location.href='/vacancy-form.html'">Создать вакансию</button>
+        </div>
+        <div class="role-card">
+          <h3>Найти работника</h3>
+          <p>Посмотрите профили исполнителей и свяжитесь напрямую.</p>
+          <button class="btn primary" onclick="location.href='/profiles.html'">Найти работника</button>
+        </div>
       </div>
-
-      <label>Краткое описание задания<br><textarea name="description" rows="4"></textarea></label>
-      <label>Дата / Время выполнения<br><input type="datetime-local" name="datetime"></label>
-      <label>Цена (по желанию)<br><input type="text" name="price"></label>
-
-      <div class="actions">
-        <button type="submit" class="btn">Отправить заявку</button>
-        <button type="button" class="btn muted" onclick="location.href='/'">На главную</button>
-      </div>
-    </form>
-
-    <div id="categoriesModal" class="modal" style="display:none;">
-      <div class="modal-content">
-        <h3>Выберите категорию</h3>
-        <ul class="category-list">
-          <li><button class="cat">Няня (для детей)</button></li>
-          <li><button class="cat">Няня (пожилые)</button></li>
-          <li><button class="cat">Бытовые услуги</button></li>
-          <li><button class="cat">Уход за животными</button></li>
-          <li><button class="cat">Другие услуги</button></li>
-        </ul>
-        <button id="closeCategories" class="btn muted">Закрыть</button>
-      </div>
-    </div>
-
+    </section>
   </main>
-  <script src="/app.js"></script>
 </body>
 
 </html>

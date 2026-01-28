@@ -1,0 +1,80 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARDAM4Y — Исполнители</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-container">
+      <div class="header-brand">
+        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <p class="header-tagline">Исполнители</p>
+      </div>
+      <button onclick="location.href='/'" class="btn secondary" style="margin-left:auto;">На главную</button>
+    </div>
+  </header>
+  <main class="container">
+    <div id="pageMessage" class="message"></div>
+
+    <div class="filters">
+      <div class="search-bar">
+        <input id="profileSearch" type="text" placeholder="Поиск: няня, официант, помощник…">
+        <button id="profileSearchBtn" class="btn primary">Найти</button>
+        <button id="profileResetBtn" class="btn muted">Сбросить</button>
+      </div>
+
+      <div class="filters-grid">
+        <div>
+          <label>Категория</label>
+          <div id="profileFilterCategories" class="chip-group" data-target="profileFilterCategoriesInput"></div>
+          <input type="hidden" id="profileFilterCategoriesInput">
+        </div>
+        <div>
+          <label>Доступность / график</label>
+          <div id="profileFilterAvailability" class="chip-group" data-target="profileFilterAvailabilityInput"></div>
+          <input type="hidden" id="profileFilterAvailabilityInput">
+        </div>
+        <div>
+          <label>Оплата от</label>
+          <input id="profilePayMin" type="number" min="0" placeholder="от">
+        </div>
+        <div>
+          <label>Город</label>
+          <select id="profileCity">
+            <option value="">Любой</option>
+            <option value="Токмок">Токмок</option>
+            <option value="Бишкек">Бишкек</option>
+            <option value="Кант">Кант</option>
+            <option value="Кара-Балта">Кара-Балта</option>
+            <option value="Чуй">Чуй</option>
+            <option value="Другое">Другое</option>
+          </select>
+        </div>
+        <div>
+          <label>Район / локация</label>
+          <input id="profileLocation" type="text" placeholder="район или ориентир">
+        </div>
+      </div>
+    </div>
+
+    <div id="profilesLoader" class="loader" style="display:none;">Загрузка...</div>
+    <div id="profilesEmpty" class="loader" style="display:none;">Пока нет подходящих профилей.</div>
+    <div id="profilesList" class="jobs-grid"></div>
+
+    <div id="profileModal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <button id="closeProfile" class="modal-close">×</button>
+        <div id="profileDetail" class="modal-detail"></div>
+        <div class="card-actions">
+          <button id="profileEditBtn" class="btn secondary">Редактировать</button>
+          <button id="profileDeleteBtn" class="btn btn-delete">Удалить</button>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
