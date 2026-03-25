@@ -1,49 +1,86 @@
-# JARDAM4Y - MVP
+# JARDAM4Y
 
-Коротко: простой сайт для размещения заявок работодателей и просмотра вакансий студентами. Есть простая админ-панель.
+Платформа для публикации вакансий и профилей исполнителей (Node.js + Express + SQLite).
 
-Файлы:
-- `server.js` - Node.js/Express сервер
-- `db.js` - sqlite3 helper
-- `public/` - фронтенд (HTML/CSS/JS)
-
-Как запустить (Windows PowerShell):
-
-1. Установить зависимости:
+## Запуск
 
 ```powershell
-cd "C:\Users\Admin\Desktop\JARDAM4Y"
 npm install
-```
-
-2. Установить ключ администратора (необязательно, по умолчанию `secret_admin_key`):
-
-```powershell
-$env:ADMIN_KEY = 'мой_сильный_ключ';
 npm start
 ```
 
-Или запустить в режиме разработки с `nodemon`:
+Откройте: `http://localhost:3000`
+
+## Переменные окружения
+
+- `PORT` — порт сервера (по умолчанию `3000`)
+- `ADMIN_KEY` — ключ админа (обязательно для `/api/admin/*`)
+- `SEARCH_UI_V2` — включение нового поиска (`1`/`true` = включен, по умолчанию включен)
+- `BCRYPT_ROUNDS` — стоимость bcrypt (по умолчанию `12`)
+
+Пример:
 
 ```powershell
-npm run dev
+$env:ADMIN_KEY = 'super_secret_key'
+$env:SEARCH_UI_V2 = '1'
+npm start
 ```
 
-3. Открыть в браузере: `http://localhost:3000`
+Сборка React-поиска (v2):
 
-Страницы:
-- `/` - главная
-- `/employer.html` - форма создания заявки
-- `/vacancies.html` - список вакансий
-- `/admin.html` - админ-панель (нужен ключ)
+```powershell
+npm run build:search-v2
+```
 
-API:
-- `POST /api/applications` - создать заявку (JSON)
-- `GET /api/applications/public` - получить все заявки
-- `GET /api/admin/applications` - получить все заявки (требует `x-admin-key` header или `adminKey` query)
-- `GET /api/admin/export` - экспорт CSV (требует admin key)
+## Основные страницы
 
-Замечания и дальнейшие шаги:
-- Улучшить авторизацию админа (сессии/пароли)
-- Добавить подтверждение email/телефона
-- Сделать личные кабинеты и фильтры
+- `/` — главная
+- `/vacancies` — поиск вакансий (v2/legacy по feature flag)
+- `/profiles` — поиск исполнителей (v2/legacy по feature flag)
+- `/vacancy-form.html` — создание/редактирование вакансии
+- `/profile-form.html` — создание/редактирование профиля
+- `/dashboard.html` — личный кабинет заявок
+- `/auth.html` — вход/регистрация
+- `/admin.html` — админ-панель
+
+## API (ключевое)
+
+### Auth
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+- `POST /api/auth/logout-all`
+
+### Search API (новый формат)
+
+`GET /api/vacancies` и `GET /api/profiles` возвращают:
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "page": 1,
+  "pageSize": 20,
+  "facets": {},
+  "sort": { "sortBy": "createdAt", "sortOrder": "desc" }
+}
+```
+
+Поддерживаются параметры:
+
+- `page`, `pageSize`
+- `sortBy`, `sortOrder`
+- `query`, `category/categories`, `availability/schedule`, `payMin`, `payMax`, `city`, `location`, `date`, `flexibleOnly`
+- `filters` (JSON-объект)
+
+Для временной совместимости:
+
+- `legacy=1` => старый формат (массив)
+
+## Безопасность
+
+- Пароли: `bcrypt` (с мягкой миграцией старых SHA-256 хешей при логине)
+- Сессии: токен в `x-session-token`
+- Админ-доступ: только через `ADMIN_KEY`

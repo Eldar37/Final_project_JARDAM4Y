@@ -7,6 +7,152 @@ const db = new sqlite3.Database(dbPath, (err) => {
   else console.log('Connected to SQLite database');
 });
 
+const VACANCY_SORT_COLUMNS = {
+  createdAt: 'created_at',
+  title: 'title',
+  payAmount: 'pay_amount',
+  dateTime: 'date_time'
+};
+
+const PROFILE_SORT_COLUMNS = {
+  createdAt: 'created_at',
+  headline: 'headline',
+  payMin: 'pay_min',
+  city: 'city'
+};
+
+function parseTextList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean).map(String);
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean).map(String);
+  } catch (err) {
+    // fallback below
+  }
+  return value.split(',').map(item => item.trim()).filter(Boolean);
+}
+
+function toNumber(value) {
+  if (value == null || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function mapToFacetArray(map) {
+  return Array.from(map.entries())
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || String(a.value).localeCompare(String(b.value)));
+}
+
+function bumpCount(map, value) {
+  if (!value) return;
+  map.set(value, (map.get(value) || 0) + 1);
+}
+
+function normalizeSortColumn(mapping, sortBy, fallbackKey) {
+  if (sortBy && mapping[sortBy]) return mapping[sortBy];
+  return mapping[fallbackKey];
+}
+
+function normalizeSortDirection(sortOrder) {
+  return String(sortOrder || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+}
+
+function buildVacancySearchQuery(filters = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (filters.query) {
+    const like = `%${filters.query}%`;
+    conditions.push('(title LIKE ? OR description LIKE ? OR tags LIKE ? OR location_text LIKE ? OR category_ids LIKE ?)');
+    params.push(like, like, like, like, like);
+  }
+
+  const categories = parseTextList(filters.categories);
+  if (categories.length) {
+    const chunk = categories.map(() => 'category_ids LIKE ?').join(' OR ');
+    conditions.push(`(${chunk})`);
+    categories.forEach(cat => params.push(`%${cat}%`));
+  }
+
+  const schedule = parseTextList(filters.schedule);
+  if (schedule.length) {
+    const chunk = schedule.map(() => 'schedule LIKE ?').join(' OR ');
+    conditions.push(`(${chunk})`);
+    schedule.forEach(item => params.push(`%${item}%`));
+  }
+
+  const payMin = toNumber(filters.payMin);
+  if (payMin != null) {
+    conditions.push('pay_amount >= ?');
+    params.push(payMin);
+  }
+
+  const payMax = toNumber(filters.payMax);
+  if (payMax != null) {
+    conditions.push('pay_amount <= ?');
+    params.push(payMax);
+  }
+
+  if (filters.date) {
+    conditions.push('date(date_time) = date(?)');
+    params.push(filters.date);
+  }
+
+  if (filters.flexibleOnly) {
+    conditions.push('is_flexible_time = 1');
+  }
+
+  const whereSql = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
+  return { whereSql, params };
+}
+
+function buildProfileSearchQuery(filters = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (filters.query) {
+    const like = `%${filters.query}%`;
+    conditions.push('(headline LIKE ? OR about LIKE ? OR tags LIKE ? OR location_text LIKE ? OR city LIKE ? OR categories LIKE ?)');
+    params.push(like, like, like, like, like, like);
+  }
+
+  const categories = parseTextList(filters.categories);
+  if (categories.length) {
+    const chunk = categories.map(() => 'categories LIKE ?').join(' OR ');
+    conditions.push(`(${chunk})`);
+    categories.forEach(cat => params.push(`%${cat}%`));
+  }
+
+  const availability = parseTextList(filters.availability);
+  if (availability.length) {
+    const chunk = availability.map(() => 'availability LIKE ?').join(' OR ');
+    conditions.push(`(${chunk})`);
+    availability.forEach(item => params.push(`%${item}%`));
+  }
+
+  const payMin = toNumber(filters.payMin);
+  if (payMin != null) {
+    conditions.push('pay_min >= ?');
+    params.push(payMin);
+  }
+
+  if (filters.city) {
+    conditions.push('city = ?');
+    params.push(filters.city);
+  }
+
+  if (filters.location) {
+    conditions.push('location_text LIKE ?');
+    params.push(`%${filters.location}%`);
+  }
+
+  const whereSql = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
+  return { whereSql, params };
+}
+
 exports.init = () => {
   db.run(`
     CREATE TABLE IF NOT EXISTS applications (
@@ -24,8 +170,7 @@ exports.init = () => {
     )
   `);
 
-  // ensure legacy databases get the user_id column
-  db.all(`PRAGMA table_info(applications)`, (err, rows) => {
+  db.all('PRAGMA table_info(applications)', (err, rows) => {
     if (err) {
       console.error('PRAGMA table_info error', err);
       return;
@@ -68,6 +213,7 @@ exports.init = () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       contact_name TEXT NOT NULL,
       phone TEXT NOT NULL,
+      photo_url TEXT,
       location_text TEXT,
       category_ids TEXT,
       title TEXT NOT NULL,
@@ -89,6 +235,7 @@ exports.init = () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       phone TEXT NOT NULL,
+      photo_url TEXT,
       categories TEXT,
       headline TEXT,
       availability TEXT,
@@ -106,6 +253,18 @@ exports.init = () => {
       created_at TEXT,
       updated_at TEXT,
       user_id INTEGER
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS favorites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER NOT NULL,
+      created_at TEXT,
+      UNIQUE(user_id, entity_type, entity_id),
+      FOREIGN KEY(user_id) REFERENCES users(id)
     )
   `);
 
@@ -130,6 +289,7 @@ exports.init = () => {
   ensureColumns('vacancies', [
     { name: 'contact_name', type: 'TEXT' },
     { name: 'phone', type: 'TEXT' },
+    { name: 'photo_url', type: 'TEXT' },
     { name: 'location_text', type: 'TEXT' },
     { name: 'category_ids', type: 'TEXT' },
     { name: 'title', type: 'TEXT' },
@@ -148,6 +308,7 @@ exports.init = () => {
   ensureColumns('worker_profiles', [
     { name: 'name', type: 'TEXT' },
     { name: 'phone', type: 'TEXT' },
+    { name: 'photo_url', type: 'TEXT' },
     { name: 'categories', type: 'TEXT' },
     { name: 'headline', type: 'TEXT' },
     { name: 'availability', type: 'TEXT' },
@@ -167,7 +328,25 @@ exports.init = () => {
     { name: 'user_id', type: 'INTEGER' }
   ]);
 
-  console.log('Tables initialized');
+  const indexes = [
+    'CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)',
+    'CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_vacancies_created_at ON vacancies(created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_vacancies_user_id ON vacancies(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_vacancies_pay_amount ON vacancies(pay_amount)',
+    'CREATE INDEX IF NOT EXISTS idx_vacancies_date_time ON vacancies(date_time)',
+    'CREATE INDEX IF NOT EXISTS idx_profiles_created_at ON worker_profiles(created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON worker_profiles(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_profiles_pay_min ON worker_profiles(pay_min)',
+    'CREATE INDEX IF NOT EXISTS idx_profiles_city ON worker_profiles(city)',
+    'CREATE INDEX IF NOT EXISTS idx_favorites_user_id ON favorites(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_favorites_entity ON favorites(entity_type, entity_id)'
+  ];
+
+  indexes.forEach(sql => db.run(sql));
+  console.log('Tables and indexes initialized');
 };
 
 // ========== APPLICATIONS ==========
@@ -177,16 +356,20 @@ exports.createApplication = (data) => {
       INSERT INTO applications (name, contact, address, category, otherCategoryText, description, datetime, price, created_at, user_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    db.run(sql, [data.name, data.contact, data.address, data.category, data.otherCategoryText, data.description, data.datetime, data.price, data.created_at, data.user_id || null], function (err) {
-      if (err) reject(err);
-      else resolve(this.lastID);
-    });
+    db.run(
+      sql,
+      [data.name, data.contact, data.address, data.category, data.otherCategoryText, data.description, data.datetime, data.price, data.created_at, data.user_id || null],
+      function (err) {
+        if (err) reject(err);
+        else resolve(this.lastID);
+      }
+    );
   });
 };
 
 exports.getAllApplications = () => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT * FROM applications ORDER BY created_at DESC`, (err, rows) => {
+    db.all('SELECT * FROM applications ORDER BY created_at DESC', (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
     });
@@ -195,7 +378,7 @@ exports.getAllApplications = () => {
 
 exports.getApplicationById = (id) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT * FROM applications WHERE id = ?`, [id], (err, row) => {
+    db.get('SELECT * FROM applications WHERE id = ?', [id], (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });
@@ -204,7 +387,7 @@ exports.getApplicationById = (id) => {
 
 exports.getApplicationsByUserId = (userId) => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT * FROM applications WHERE user_id = ? ORDER BY created_at DESC`, [userId], (err, rows) => {
+    db.all('SELECT * FROM applications WHERE user_id = ? ORDER BY created_at DESC', [userId], (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
     });
@@ -214,7 +397,7 @@ exports.getApplicationsByUserId = (userId) => {
 exports.updateApplication = (id, data) => {
   return new Promise((resolve, reject) => {
     const sql = `
-      UPDATE applications 
+      UPDATE applications
       SET name=?, contact=?, category=?, description=?, datetime=?, price=?
       WHERE id=?
     `;
@@ -227,8 +410,7 @@ exports.updateApplication = (id, data) => {
 
 exports.deleteApplication = (id) => {
   return new Promise((resolve, reject) => {
-    const sql = `DELETE FROM applications WHERE id = ?`;
-    db.run(sql, [id], function (err) {
+    db.run('DELETE FROM applications WHERE id = ?', [id], function (err) {
       if (err) reject(err);
       else resolve(this.changes);
     });
@@ -238,7 +420,16 @@ exports.deleteApplication = (id) => {
 // ========== USERS ==========
 exports.getUserByEmail = (email) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, row) => {
+    db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+};
+
+exports.getUserById = (id) => {
+  return new Promise((resolve, reject) => {
+    db.get('SELECT * FROM users WHERE id = ?', [id], (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });
@@ -247,7 +438,7 @@ exports.getUserByEmail = (email) => {
 
 exports.createUser = (data) => {
   return new Promise((resolve, reject) => {
-    const sql = `INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?)`;
+    const sql = 'INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?)';
     db.run(sql, [data.name, data.email, data.password, new Date().toISOString()], function (err) {
       if (err) reject(err);
       else resolve(this.lastID);
@@ -255,10 +446,20 @@ exports.createUser = (data) => {
   });
 };
 
+exports.updateUserPassword = (userId, passwordHash) => {
+  return new Promise((resolve, reject) => {
+    const sql = 'UPDATE users SET password = ? WHERE id = ?';
+    db.run(sql, [passwordHash, userId], function (err) {
+      if (err) reject(err);
+      else resolve(this.changes);
+    });
+  });
+};
+
 // ========== SESSIONS ==========
 exports.createSession = (userId, token) => {
   return new Promise((resolve, reject) => {
-    const sql = `INSERT INTO sessions (user_id, token, created_at) VALUES (?, ?, ?)`;
+    const sql = 'INSERT INTO sessions (user_id, token, created_at) VALUES (?, ?, ?)';
     db.run(sql, [userId, token, new Date().toISOString()], function (err) {
       if (err) reject(err);
       else resolve(this.lastID);
@@ -268,9 +469,84 @@ exports.createSession = (userId, token) => {
 
 exports.getSessionByToken = (token) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT * FROM sessions WHERE token = ?`, [token], (err, row) => {
+    db.get('SELECT * FROM sessions WHERE token = ?', [token], (err, row) => {
       if (err) reject(err);
       else resolve(row);
+    });
+  });
+};
+
+exports.deleteSessionByToken = (token) => {
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM sessions WHERE token = ?', [token], function (err) {
+      if (err) reject(err);
+      else resolve(this.changes || 0);
+    });
+  });
+};
+
+exports.deleteSessionsByUserId = (userId) => {
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM sessions WHERE user_id = ?', [userId], function (err) {
+      if (err) reject(err);
+      else resolve(this.changes || 0);
+    });
+  });
+};
+
+// ========== FAVORITES ==========
+exports.addFavorite = (userId, entityType, entityId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      INSERT OR IGNORE INTO favorites (user_id, entity_type, entity_id, created_at)
+      VALUES (?, ?, ?, ?)
+    `;
+    db.run(sql, [userId, entityType, entityId, new Date().toISOString()], function (err) {
+      if (err) reject(err);
+      else resolve(this.changes || 0);
+    });
+  });
+};
+
+exports.removeFavorite = (userId, entityType, entityId) => {
+  return new Promise((resolve, reject) => {
+    const sql = 'DELETE FROM favorites WHERE user_id = ? AND entity_type = ? AND entity_id = ?';
+    db.run(sql, [userId, entityType, entityId], function (err) {
+      if (err) reject(err);
+      else resolve(this.changes || 0);
+    });
+  });
+};
+
+exports.removeFavoritesByEntity = (entityType, entityId) => {
+  return new Promise((resolve, reject) => {
+    const sql = 'DELETE FROM favorites WHERE entity_type = ? AND entity_id = ?';
+    db.run(sql, [entityType, entityId], function (err) {
+      if (err) reject(err);
+      else resolve(this.changes || 0);
+    });
+  });
+};
+
+exports.getFavoritesByUser = (userId, entityType = '') => {
+  return new Promise((resolve, reject) => {
+    const sql = entityType
+      ? 'SELECT * FROM favorites WHERE user_id = ? AND entity_type = ? ORDER BY created_at DESC'
+      : 'SELECT * FROM favorites WHERE user_id = ? ORDER BY created_at DESC';
+    const params = entityType ? [userId, entityType] : [userId];
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+};
+
+exports.getFavoriteIdsByUser = (userId, entityType) => {
+  return new Promise((resolve, reject) => {
+    const sql = 'SELECT entity_id FROM favorites WHERE user_id = ? AND entity_type = ?';
+    db.all(sql, [userId, entityType], (err, rows) => {
+      if (err) reject(err);
+      else resolve((rows || []).map(row => row.entity_id));
     });
   });
 };
@@ -282,6 +558,7 @@ exports.createVacancy = (data) => {
       INSERT INTO vacancies (
         contact_name,
         phone,
+        photo_url,
         location_text,
         category_ids,
         title,
@@ -296,13 +573,14 @@ exports.createVacancy = (data) => {
         updated_at,
         user_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     db.run(
       sql,
       [
         data.contact_name,
         data.phone,
+        data.photo_url || null,
         data.location_text,
         data.category_ids,
         data.title,
@@ -327,7 +605,7 @@ exports.createVacancy = (data) => {
 
 exports.getVacancyById = (id) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT * FROM vacancies WHERE id = ?`, [id], (err, row) => {
+    db.get('SELECT * FROM vacancies WHERE id = ?', [id], (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });
@@ -336,71 +614,84 @@ exports.getVacancyById = (id) => {
 
 exports.getVacanciesByUserId = (userId) => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT * FROM vacancies WHERE user_id = ? ORDER BY created_at DESC`, [userId], (err, rows) => {
+    db.all('SELECT * FROM vacancies WHERE user_id = ? ORDER BY created_at DESC', [userId], (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
     });
   });
 };
 
-exports.searchVacancies = (filters) => {
+exports.searchVacancies = (filters = {}) => {
   return new Promise((resolve, reject) => {
-    const conditions = [];
-    const params = [];
+    const { whereSql, params } = buildVacancySearchQuery(filters);
+    const sortColumn = normalizeSortColumn(VACANCY_SORT_COLUMNS, filters.sortBy, 'createdAt');
+    const sortDirection = normalizeSortDirection(filters.sortOrder);
+    const sqlParams = [...params];
 
-    if (filters.query) {
-      const like = `%${filters.query}%`;
-      conditions.push(`(title LIKE ? OR description LIKE ? OR tags LIKE ? OR location_text LIKE ? OR category_ids LIKE ?)`);
-      params.push(like, like, like, like, like);
+    let sql = `SELECT * FROM vacancies${whereSql} ORDER BY ${sortColumn} ${sortDirection}, id DESC`;
+
+    const limit = toNumber(filters.limit);
+    const offset = toNumber(filters.offset);
+    if (limit != null) {
+      sql += ' LIMIT ?';
+      sqlParams.push(limit);
+    }
+    if (offset != null) {
+      sql += ' OFFSET ?';
+      sqlParams.push(offset);
     }
 
-    if (Array.isArray(filters.categories) && filters.categories.length) {
-      const chunk = filters.categories.map(() => `category_ids LIKE ?`).join(' OR ');
-      conditions.push(`(${chunk})`);
-      filters.categories.forEach(cat => params.push(`%${cat}%`));
-    }
-
-    if (Array.isArray(filters.schedule) && filters.schedule.length) {
-      const chunk = filters.schedule.map(() => `schedule LIKE ?`).join(' OR ');
-      conditions.push(`(${chunk})`);
-      filters.schedule.forEach(item => params.push(`%${item}%`));
-    }
-
-    if (filters.payMin != null && filters.payMin !== '') {
-      conditions.push(`pay_amount >= ?`);
-      params.push(Number(filters.payMin));
-    }
-
-    if (filters.payMax != null && filters.payMax !== '') {
-      conditions.push(`pay_amount <= ?`);
-      params.push(Number(filters.payMax));
-    }
-
-    if (filters.date) {
-      conditions.push(`date(date_time) = date(?)`);
-      params.push(filters.date);
-    }
-
-    if (filters.flexibleOnly) {
-      conditions.push(`is_flexible_time = 1`);
-    }
-
-    let sql = `SELECT * FROM vacancies`;
-    if (conditions.length) sql += ` WHERE ${conditions.join(' AND ')}`;
-    sql += ` ORDER BY created_at DESC`;
-
-    if (filters.limit != null) {
-      sql += ` LIMIT ?`;
-      params.push(Number(filters.limit));
-    }
-    if (filters.offset != null) {
-      sql += ` OFFSET ?`;
-      params.push(Number(filters.offset));
-    }
-
-    db.all(sql, params, (err, rows) => {
+    db.all(sql, sqlParams, (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
+    });
+  });
+};
+
+exports.countVacancies = (filters = {}) => {
+  return new Promise((resolve, reject) => {
+    const { whereSql, params } = buildVacancySearchQuery(filters);
+    db.get(`SELECT COUNT(*) AS total FROM vacancies${whereSql}`, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.total : 0);
+    });
+  });
+};
+
+exports.getVacancyFacets = (filters = {}) => {
+  return new Promise((resolve, reject) => {
+    const { whereSql, params } = buildVacancySearchQuery(filters);
+    const sql = `SELECT category_ids, schedule, pay_amount, is_flexible_time FROM vacancies${whereSql}`;
+    db.all(sql, params, (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      const categoryMap = new Map();
+      const scheduleMap = new Map();
+      let payMin = null;
+      let payMax = null;
+      let flexibleCount = 0;
+
+      (rows || []).forEach((row) => {
+        parseTextList(row.category_ids).forEach(value => bumpCount(categoryMap, value));
+        parseTextList(row.schedule).forEach(value => bumpCount(scheduleMap, value));
+
+        const amount = toNumber(row.pay_amount);
+        if (amount != null) {
+          payMin = payMin == null ? amount : Math.min(payMin, amount);
+          payMax = payMax == null ? amount : Math.max(payMax, amount);
+        }
+
+        if (row.is_flexible_time) flexibleCount += 1;
+      });
+
+      resolve({
+        categories: mapToFacetArray(categoryMap),
+        schedule: mapToFacetArray(scheduleMap),
+        pay: { min: payMin, max: payMax },
+        flexibleCount
+      });
     });
   });
 };
@@ -411,6 +702,7 @@ exports.updateVacancy = (id, data) => {
       UPDATE vacancies
       SET contact_name=?,
           phone=?,
+          photo_url=?,
           location_text=?,
           category_ids=?,
           title=?,
@@ -429,6 +721,7 @@ exports.updateVacancy = (id, data) => {
       [
         data.contact_name,
         data.phone,
+        data.photo_url || null,
         data.location_text,
         data.category_ids,
         data.title,
@@ -452,7 +745,7 @@ exports.updateVacancy = (id, data) => {
 
 exports.deleteVacancy = (id) => {
   return new Promise((resolve, reject) => {
-    db.run(`DELETE FROM vacancies WHERE id = ?`, [id], function (err) {
+    db.run('DELETE FROM vacancies WHERE id = ?', [id], function (err) {
       if (err) reject(err);
       else resolve(this.changes);
     });
@@ -466,6 +759,7 @@ exports.createWorkerProfile = (data) => {
       INSERT INTO worker_profiles (
         name,
         phone,
+        photo_url,
         categories,
         headline,
         availability,
@@ -484,13 +778,14 @@ exports.createWorkerProfile = (data) => {
         updated_at,
         user_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     db.run(
       sql,
       [
         data.name,
         data.phone,
+        data.photo_url || null,
         data.categories,
         data.headline,
         data.availability,
@@ -519,7 +814,7 @@ exports.createWorkerProfile = (data) => {
 
 exports.getWorkerProfileById = (id) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT * FROM worker_profiles WHERE id = ?`, [id], (err, row) => {
+    db.get('SELECT * FROM worker_profiles WHERE id = ?', [id], (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });
@@ -528,67 +823,83 @@ exports.getWorkerProfileById = (id) => {
 
 exports.getWorkerProfilesByUserId = (userId) => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT * FROM worker_profiles WHERE user_id = ? ORDER BY created_at DESC`, [userId], (err, rows) => {
+    db.all('SELECT * FROM worker_profiles WHERE user_id = ? ORDER BY created_at DESC', [userId], (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
     });
   });
 };
 
-exports.searchWorkerProfiles = (filters) => {
+exports.searchWorkerProfiles = (filters = {}) => {
   return new Promise((resolve, reject) => {
-    const conditions = [];
-    const params = [];
+    const { whereSql, params } = buildProfileSearchQuery(filters);
+    const sortColumn = normalizeSortColumn(PROFILE_SORT_COLUMNS, filters.sortBy, 'createdAt');
+    const sortDirection = normalizeSortDirection(filters.sortOrder);
+    const sqlParams = [...params];
 
-    if (filters.query) {
-      const like = `%${filters.query}%`;
-      conditions.push(`(headline LIKE ? OR about LIKE ? OR tags LIKE ? OR location_text LIKE ? OR city LIKE ? OR categories LIKE ?)`);
-      params.push(like, like, like, like, like, like);
+    let sql = `SELECT * FROM worker_profiles${whereSql} ORDER BY ${sortColumn} ${sortDirection}, id DESC`;
+
+    const limit = toNumber(filters.limit);
+    const offset = toNumber(filters.offset);
+    if (limit != null) {
+      sql += ' LIMIT ?';
+      sqlParams.push(limit);
+    }
+    if (offset != null) {
+      sql += ' OFFSET ?';
+      sqlParams.push(offset);
     }
 
-    if (Array.isArray(filters.categories) && filters.categories.length) {
-      const chunk = filters.categories.map(() => `categories LIKE ?`).join(' OR ');
-      conditions.push(`(${chunk})`);
-      filters.categories.forEach(cat => params.push(`%${cat}%`));
-    }
-
-    if (Array.isArray(filters.availability) && filters.availability.length) {
-      const chunk = filters.availability.map(() => `availability LIKE ?`).join(' OR ');
-      conditions.push(`(${chunk})`);
-      filters.availability.forEach(item => params.push(`%${item}%`));
-    }
-
-    if (filters.payMin != null && filters.payMin !== '') {
-      conditions.push(`pay_min >= ?`);
-      params.push(Number(filters.payMin));
-    }
-
-    if (filters.city) {
-      conditions.push(`city = ?`);
-      params.push(filters.city);
-    }
-
-    if (filters.location) {
-      conditions.push(`location_text LIKE ?`);
-      params.push(`%${filters.location}%`);
-    }
-
-    let sql = `SELECT * FROM worker_profiles`;
-    if (conditions.length) sql += ` WHERE ${conditions.join(' AND ')}`;
-    sql += ` ORDER BY created_at DESC`;
-
-    if (filters.limit != null) {
-      sql += ` LIMIT ?`;
-      params.push(Number(filters.limit));
-    }
-    if (filters.offset != null) {
-      sql += ` OFFSET ?`;
-      params.push(Number(filters.offset));
-    }
-
-    db.all(sql, params, (err, rows) => {
+    db.all(sql, sqlParams, (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
+    });
+  });
+};
+
+exports.countWorkerProfiles = (filters = {}) => {
+  return new Promise((resolve, reject) => {
+    const { whereSql, params } = buildProfileSearchQuery(filters);
+    db.get(`SELECT COUNT(*) AS total FROM worker_profiles${whereSql}`, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.total : 0);
+    });
+  });
+};
+
+exports.getWorkerProfileFacets = (filters = {}) => {
+  return new Promise((resolve, reject) => {
+    const { whereSql, params } = buildProfileSearchQuery(filters);
+    const sql = `SELECT categories, availability, city, pay_min FROM worker_profiles${whereSql}`;
+    db.all(sql, params, (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      const categoryMap = new Map();
+      const availabilityMap = new Map();
+      const cityMap = new Map();
+      let payMin = null;
+      let payMax = null;
+
+      (rows || []).forEach((row) => {
+        parseTextList(row.categories).forEach(value => bumpCount(categoryMap, value));
+        parseTextList(row.availability).forEach(value => bumpCount(availabilityMap, value));
+        bumpCount(cityMap, row.city);
+
+        const amount = toNumber(row.pay_min);
+        if (amount != null) {
+          payMin = payMin == null ? amount : Math.min(payMin, amount);
+          payMax = payMax == null ? amount : Math.max(payMax, amount);
+        }
+      });
+
+      resolve({
+        categories: mapToFacetArray(categoryMap),
+        availability: mapToFacetArray(availabilityMap),
+        cities: mapToFacetArray(cityMap),
+        pay: { min: payMin, max: payMax }
+      });
     });
   });
 };
@@ -599,6 +910,7 @@ exports.updateWorkerProfile = (id, data) => {
       UPDATE worker_profiles
       SET name=?,
           phone=?,
+          photo_url=?,
           categories=?,
           headline=?,
           availability=?,
@@ -621,6 +933,7 @@ exports.updateWorkerProfile = (id, data) => {
       [
         data.name,
         data.phone,
+        data.photo_url || null,
         data.categories,
         data.headline,
         data.availability,
@@ -648,7 +961,7 @@ exports.updateWorkerProfile = (id, data) => {
 
 exports.deleteWorkerProfile = (id) => {
   return new Promise((resolve, reject) => {
-    db.run(`DELETE FROM worker_profiles WHERE id = ?`, [id], function (err) {
+    db.run('DELETE FROM worker_profiles WHERE id = ?', [id], function (err) {
       if (err) reject(err);
       else resolve(this.changes);
     });

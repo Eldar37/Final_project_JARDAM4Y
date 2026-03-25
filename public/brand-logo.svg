@@ -1,0 +1,29 @@
+<svg width="920" height="220" viewBox="0 0 920 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="jardamArrow" x1="42" y1="24" x2="180" y2="162" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD85C"/>
+      <stop offset="1" stop-color="#F2BC20"/>
+    </linearGradient>
+    <linearGradient id="jardamArrowShade" x1="92" y1="98" x2="168" y2="182" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E3A60E"/>
+      <stop offset="1" stop-color="#C98500"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(24 22)">
+    <polygon points="0,122 94,122 148,176 56,176" fill="#F1B117"/>
+    <polygon points="94,18 214,138 94,138" fill="url(#jardamArrow)"/>
+    <polygon points="94,18 214,138 94,176" fill="url(#jardamArrowShade)"/>
+    <polygon points="144,78 236,138 184,138" fill="#E7AE16"/>
+  </g>
+
+  <g transform="translate(288 40)">
+    <text x="0" y="88" font-family="Segoe UI, Arial, sans-serif" font-size="86" font-weight="800" fill="#1F4D84" letter-spacing="1.2">
+      JARDAM<tspan fill="#F2BC20">4</tspan>Y
+    </text>
+    <rect x="3" y="108" width="246" height="6" rx="3" fill="#F2BC20"/>
+    <text x="4" y="150" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#426486" letter-spacing="1.8">
+      project by ENACTUS IUCA
+    </text>
+  </g>
+</svg>

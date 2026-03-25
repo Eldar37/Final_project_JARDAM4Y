@@ -12,10 +12,10 @@
   <header class="site-header">
     <div class="header-container">
       <div class="header-brand">
-        <img src="/logo.png" alt="JARDAM4Y" class="header-logo">
+        <img src="/jardam4y-logo.svg" alt="JARDAM4Y by Enactus IUCA" class="header-logo">
         <p class="header-tagline">Создание вакансии</p>
       </div>
-      <button onclick="location.href='/employer.html'" class="btn secondary" style="margin-left:auto;">Назад</button>
+      <button onclick="location.href='/marketplace'" class="btn secondary" style="margin-left:auto;">Назад</button>
     </div>
   </header>
 
@@ -24,70 +24,114 @@
 
     <form id="vacancyForm" class="card" data-requires-auth="true">
       <h3 id="vacancyFormTitle">Опубликовать вакансию</h3>
+      <p class="hero-subtitle">Заполните все данные на одной странице и сразу опубликуйте карточку.</p>
 
-      <label>Контактное имя (как к вам обращаться)
-        <input type="text" name="contactName" required>
-      </label>
+      <section class="form-section">
+        <h4>Контакт и фото</h4>
 
-      <label>Телефон (WhatsApp)
-        <input type="text" name="phone" required placeholder="+996 700 123 456">
-        <div class="form-hint">Укажите номер, по которому удобно связаться</div>
-      </label>
+        <label>Контактное имя
+          <input type="text" name="contactName" required>
+        </label>
 
-      <label>Район / ориентир
-        <input type="text" name="locationText" placeholder="Например: 7 мкр, рядом с рынком">
-      </label>
+        <label>Телефон (WhatsApp)
+          <input type="text" name="phone" required placeholder="+996 700 123 456">
+          <div class="form-hint">Укажите номер, по которому удобно связаться</div>
+        </label>
 
-      <label>Категория
-        <div id="vacancyCategories" class="chip-group" data-target="vacancyCategoryInput"></div>
-        <input type="hidden" id="vacancyCategoryInput" name="categoryIds">
-      </label>
+        <label>Район / ориентир
+          <input type="text" name="locationText" placeholder="Например: 7 мкр, рядом с рынком">
+        </label>
 
-      <label>Короткий заголовок
-        <input type="text" name="title" placeholder="Например: Нужна няня на вечер" required>
-      </label>
+        <label>Фото (необязательно)
+          <input type="file" id="vacancyPhotoInput" name="photo" accept="image/jpeg,image/png,image/webp">
+          <input type="hidden" name="photoUrl" id="vacancyPhotoUrl">
+          <div class="form-hint">Можно оставить без фото. Поддерживаются JPG/PNG/WEBP до 5MB.</div>
+          <div class="wizard-photo-preview" id="vacancyPhotoPreviewWrap" hidden>
+            <img id="vacancyPhotoPreview" alt="Предпросмотр фото вакансии">
+            <button type="button" class="btn muted" id="vacancyPhotoRemove">Удалить фото</button>
+          </div>
+        </label>
+      </section>
 
-      <label>Краткое описание задания
-        <textarea name="description" rows="4" placeholder="Что нужно сделать? На сколько времени? Важные детали" maxlength="1000" required></textarea>
-      </label>
+      <section class="form-section">
+        <h4>Описание вакансии</h4>
 
-      <label>График / доступность
-        <div id="vacancySchedule" class="chip-group" data-target="vacancyScheduleInput"></div>
-        <input type="hidden" id="vacancyScheduleInput" name="schedule">
-      </label>
+        <label>Категория
+          <div id="vacancyCategories" class="chip-group" data-target="vacancyCategoryInput"></div>
+          <input type="hidden" id="vacancyCategoryInput" name="categoryIds">
+        </label>
 
-      <label>Дата / Время выполнения
-        <input type="datetime-local" name="dateTime">
-        <div class="inline-check">
-          <input type="checkbox" id="flexibleTime" name="isFlexibleTime">
-          <label for="flexibleTime">По договорённости</label>
+        <label>Короткий заголовок
+          <input type="text" name="title" placeholder="Например: Нужна няня на вечер" required>
+        </label>
+
+        <label>Краткое описание задания
+          <textarea name="description" rows="4" placeholder="Что нужно сделать? На сколько времени? Важные детали" maxlength="1000" required></textarea>
+        </label>
+      </section>
+
+      <section class="form-section">
+        <h4>Условия и публикация</h4>
+
+        <label>График / доступность
+          <div id="vacancySchedule" class="chip-group" data-target="vacancyScheduleInput"></div>
+          <input type="hidden" id="vacancyScheduleInput" name="schedule">
+        </label>
+
+        <label>Дата / Время выполнения
+          <input type="datetime-local" name="dateTime">
+          <div class="inline-check">
+            <input type="checkbox" id="flexibleTime" name="isFlexibleTime">
+            <label for="flexibleTime">По договорённости</label>
+          </div>
+        </label>
+
+        <div class="field-row">
+          <label>Оплата (сом/час или за работу)
+            <input type="number" name="payAmount" min="0" placeholder="Например: 500">
+          </label>
+          <label>Тип оплаты
+            <select name="payType">
+              <option value="">Выберите</option>
+              <option value="hour">за час</option>
+              <option value="shift">за смену</option>
+              <option value="fixed">за работу</option>
+            </select>
+          </label>
         </div>
-      </label>
 
-      <div class="field-row">
-        <label>Оплата (сом/час или за работу)
-          <input type="number" name="payAmount" min="0" placeholder="Например: 500">
+        <label>Теги (через запятую)
+          <input type="text" name="tags" placeholder="например: уборка, помощник">
         </label>
-        <label>Тип оплаты
-          <select name="payType">
-            <option value="">Выберите</option>
-            <option value="hour">за час</option>
-            <option value="shift">за смену</option>
-            <option value="fixed">за работу</option>
-          </select>
-        </label>
-      </div>
+      </section>
 
-      <label>Теги (через запятую)
-        <input type="text" name="tags" placeholder="например: уборка, помощник">
-      </label>
-
-      <div class="actions">
+      <div class="actions" id="vacancySubmitActions">
         <button type="submit" class="btn primary" id="vacancySubmit">Опубликовать вакансию</button>
-        <button type="button" class="btn muted" onclick="location.href='/employer.html'">Отмена</button>
+        <button type="button" class="btn muted" onclick="location.href='/marketplace'">Отмена</button>
       </div>
     </form>
   </main>
+
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div class="footer-column">
+        <img src="/jardam4y-logo.svg" alt="JARDAM4Y by Enactus IUCA" class="footer-logo">
+        <p>JARDAM4Y объединяет услуги и вакансии в одном аккуратном каталоге от команды Enactus IUCA.</p>
+      </div>
+      <div class="footer-column">
+        <h3>Контакты</h3>
+        <ul class="footer-links">
+          <li>Телефон: <a href="tel:+996554118320">+996 554 118 320</a></li>
+          <li>Instagram: <a href="https://www.instagram.com/enactus.iuca.kg" target="_blank" rel="noreferrer">@enactus.iuca.kg</a></li>
+        </ul>
+      </div>
+      <div class="footer-column">
+        <h3>О проекте</h3>
+        <p>Публикуйте вакансии, предлагайте услуги и управляйте своими карточками в личном кабинете.</p>
+      </div>
+    </div>
+    <div class="footer-bottom">© 2026 JARDAM4Y · Enactus IUCA</div>
+  </footer>
 
   <script src="/app.js"></script>
 </body>

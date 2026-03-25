@@ -1,6 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 const dbPath = path.join(__dirname, 'tokmaker.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -23,7 +24,8 @@ db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, row) => {
   } else {
     if (row) {
       console.log('User found:', row);
-      if (row.password === hashedPassword) {
+      const bcryptMatch = row.password && row.password.startsWith('$2') ? bcrypt.compareSync(password, row.password) : false;
+      if (row.password === hashedPassword || bcryptMatch) {
         console.log('Password match: YES');
       } else {
         console.log('Password match: NO');

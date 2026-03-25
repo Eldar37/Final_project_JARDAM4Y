@@ -1,25 +1,52 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
-const db = require('./db');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ADMIN_KEY = '123123'; // process.env.ADMIN_KEY || '123123';
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const SESSION_HEADER = 'x-session-token';
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 12);
+const MAX_PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_NUMBER = 100000;
 
-async function getSessionFromRequest(req) {
-  const token = req.header(SESSION_HEADER) || (req.header('authorization') || '').replace(/Bearer\s+/i, '');
-  if (!token) return null;
-  try {
-    const session = await db.getSessionByToken(token);
-    return session || null;
-  } catch (err) {
-    console.error('Session lookup failed', err);
-    return null;
+const publicDir = path.join(__dirname, 'public');
+const searchV2Index = path.join(publicDir, 'search-v2', 'index.html');
+const uploadsDir = path.join(__dirname, 'uploads');
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const allowedImageMime = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const uploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
+    cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${safeExt}`);
   }
+});
+const upload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!allowedImageMime.has(file.mimetype)) {
+      cb(new Error('Only jpg, png, webp images are allowed'));
+      return;
+    }
+    cb(null, true);
+  }
+});
+
+if (!ADMIN_KEY) {
+  console.warn('ADMIN_KEY is not set. Admin endpoints are disabled.');
 }
 
 function parseList(value) {
@@ -32,7 +59,6 @@ function parseList(value) {
     } catch (err) {
       return value.split(',').map(item => item.trim()).filter(Boolean);
     }
-    return [];
   }
   return [];
 }
@@ -52,7 +78,7 @@ function toNumber(value) {
 
 function parseBoolean(value) {
   if (value === true || value === false) return value;
-  if (value == null) return false;
+  if (value == null || value === '') return false;
   return ['1', 'true', 'on', 'yes'].includes(String(value).toLowerCase());
 }
 
@@ -72,9 +98,11 @@ function normalizeVacancy(row) {
     payAmount: row.pay_amount,
     payType: row.pay_type,
     tags: parseList(row.tags),
+    photoUrl: row.photo_url || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    userId: row.user_id
+    userId: row.user_id,
+    isFavorite: false
   };
 }
 
@@ -98,25 +126,215 @@ function normalizeProfile(row) {
     contactMethods: parseList(row.contact_methods),
     age: row.age,
     tags: parseList(row.tags),
+    photoUrl: row.photo_url || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    userId: row.user_id
+    userId: row.user_id,
+    isFavorite: false
   };
 }
 
-app.use(cors());
-app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public')));
+function withFavoriteFlag(items, favoriteIds) {
+  const favoriteSet = new Set((favoriteIds || []).map(id => Number(id)));
+  return items.map(item => ({
+    ...item,
+    isFavorite: favoriteSet.has(Number(item.id))
+  }));
+}
 
-// Create table if not exists
+function normalizeEntityType(value) {
+  const v = String(value || '').toLowerCase();
+  if (v === 'vacancy' || v === 'profile') return v;
+  return '';
+}
+
+function normalizePhotoUrl(value, fallback = '') {
+  if (value == null) return fallback || '';
+  if (typeof value !== 'string') return fallback || '';
+  const trimmed = value.trim();
+  return trimmed;
+}
+
+function getTokenFromRequest(req) {
+  return req.header(SESSION_HEADER) || (req.header('authorization') || '').replace(/Bearer\s+/i, '');
+}
+
+async function getSessionFromRequest(req) {
+  const token = getTokenFromRequest(req);
+  if (!token) return null;
+  try {
+    const session = await db.getSessionByToken(token);
+    return session || null;
+  } catch (err) {
+    console.error('Session lookup failed', err);
+    return null;
+  }
+}
+
+function readAdminKey(req) {
+  return req.header('x-admin-key') || req.query.adminKey;
+}
+
+function requireAdmin(req, res) {
+  if (!ADMIN_KEY) {
+    res.status(503).json({ error: 'Admin key is not configured' });
+    return false;
+  }
+  const key = readAdminKey(req);
+  if (!key || key !== ADMIN_KEY) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+function parseFiltersPayload(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') {
+    throw new Error('Invalid filters payload');
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (err) {
+    throw new Error('filters must be valid JSON');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('filters must be an object');
+  }
+  return parsed;
+}
+
+function parseBoundedInt(value, field, min, max, fallback) {
+  if (value == null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) throw new Error(`${field} must be an integer`);
+  if (parsed < min || parsed > max) throw new Error(`${field} must be between ${min} and ${max}`);
+  return parsed;
+}
+
+function parsePaginationAndSort(source, allowedSortBy, defaultSortBy) {
+  let page;
+  let pageSize;
+
+  if ((source.limit != null && source.limit !== '') || (source.offset != null && source.offset !== '')) {
+    const limit = parseBoundedInt(source.limit, 'limit', 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
+    const offset = parseBoundedInt(source.offset, 'offset', 0, Number.MAX_SAFE_INTEGER, 0);
+    pageSize = limit;
+    page = Math.floor(offset / limit) + 1;
+  } else {
+    page = parseBoundedInt(source.page, 'page', 1, MAX_PAGE_NUMBER, 1);
+    pageSize = parseBoundedInt(source.pageSize, 'pageSize', 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
+  }
+
+  const sortBy = source.sortBy || defaultSortBy;
+  if (!allowedSortBy.includes(sortBy)) {
+    throw new Error(`sortBy must be one of: ${allowedSortBy.join(', ')}`);
+  }
+
+  const sortOrder = String(source.sortOrder || 'desc').toLowerCase();
+  if (!['asc', 'desc'].includes(sortOrder)) {
+    throw new Error('sortOrder must be asc or desc');
+  }
+
+  const offset = (page - 1) * pageSize;
+  return { page, pageSize, offset, sortBy, sortOrder };
+}
+
+function hashLegacySha256(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+function isBcryptHash(value) {
+  return typeof value === 'string' && value.startsWith('$2');
+}
+
+async function hashPassword(password) {
+  const rounds = Number.isInteger(BCRYPT_ROUNDS) && BCRYPT_ROUNDS > 0 ? BCRYPT_ROUNDS : 12;
+  return bcrypt.hash(password, rounds);
+}
+
+function escapeCsv(s) {
+  if (s == null) return '';
+  return `"${String(s).replace(/"/g, '""')}"`;
+}
+
+function logMetric(name, payload = {}) {
+  try {
+    console.log(`[metric] ${name} ${JSON.stringify(payload)}`);
+  } catch (err) {
+    console.log(`[metric] ${name}`);
+  }
+}
+
+app.use(cors());
+app.use(express.json({ limit: '1mb' }));
+
+app.get(['/', '/index.html'], (req, res) => {
+  res.redirect(302, '/marketplace');
+});
+
+// Search/catalog routes are served only by the React bundle.
+app.get(['/vacancies', '/services', '/marketplace', '/favorites'], (req, res) => {
+  const hasV2Bundle = fs.existsSync(searchV2Index);
+  if (hasV2Bundle) {
+    res.sendFile(searchV2Index);
+    return;
+  }
+
+  res.status(500).send('Search UI bundle is missing. Build search-v2 before starting the server.');
+});
+
+app.get('/worker.html', (req, res) => {
+  res.redirect(302, '/vacancies');
+});
+
+app.get('/employer.html', (req, res) => {
+  res.redirect(302, '/services');
+});
+
+app.use((req, res, next) => {
+  const noStore = req.path.endsWith('.html') || req.path === '/brand-logo.svg' || req.path === '/jardam4y-logo.svg';
+  if (noStore) {
+    res.set('Cache-Control', 'no-store');
+  }
+  next();
+});
+
+app.use(express.static(publicDir));
+app.use('/uploads', express.static(uploadsDir));
+
 db.init();
 
-// Public: create application (from employer)
+app.post('/api/uploads/image', async (req, res) => {
+  try {
+    const session = await getSessionFromRequest(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    upload.single('image')(req, res, (err) => {
+      if (err) {
+        res.status(400).json({ success: false, error: err.message || 'Upload failed' });
+        return;
+      }
+      if (!req.file) {
+        res.status(400).json({ success: false, error: 'Image file is required' });
+        return;
+      }
+      const url = `/uploads/${req.file.filename}`;
+      res.json({ success: true, url });
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Public: create application
 app.post('/api/applications', async (req, res) => {
   try {
     const session = await getSessionFromRequest(req);
-
-    const data = req.body;
+    const data = req.body || {};
     const id = await db.createApplication({
       name: data.name || '',
       contact: data.contact || '',
@@ -129,7 +347,6 @@ app.post('/api/applications', async (req, res) => {
       created_at: new Date().toISOString(),
       user_id: session ? session.user_id : null
     });
-    console.log('New application created:', id, data);
     res.json({ success: true, id });
   } catch (err) {
     console.error(err);
@@ -137,7 +354,6 @@ app.post('/api/applications', async (req, res) => {
   }
 });
 
-// Public list of vacancies (for seekers)
 app.get('/api/applications/public', async (req, res) => {
   try {
     const rows = await db.getAllApplications();
@@ -147,10 +363,8 @@ app.get('/api/applications/public', async (req, res) => {
   }
 });
 
-// Admin: get all applications (requires admin key)
 app.get('/api/admin/applications', async (req, res) => {
-  const key = req.header('x-admin-key') || req.query.adminKey;
-  if (!key || key !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' });
+  if (!requireAdmin(req, res)) return;
   try {
     const rows = await db.getAllApplications();
     res.json(rows);
@@ -159,10 +373,8 @@ app.get('/api/admin/applications', async (req, res) => {
   }
 });
 
-// Admin: get single application
 app.get('/api/admin/applications/:id', async (req, res) => {
-  const key = req.header('x-admin-key') || req.query.adminKey;
-  if (!key || key !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' });
+  if (!requireAdmin(req, res)) return;
   try {
     const row = await db.getApplicationById(req.params.id);
     res.json(row || {});
@@ -171,14 +383,25 @@ app.get('/api/admin/applications/:id', async (req, res) => {
   }
 });
 
-// Admin export CSV
 app.get('/api/admin/export', async (req, res) => {
-  const key = req.header('x-admin-key') || req.query.adminKey;
-  if (!key || key !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' });
+  if (!requireAdmin(req, res)) return;
   try {
     const rows = await db.getAllApplications();
     const header = 'id,name,contact,address,category,otherCategoryText,description,datetime,price,created_at\n';
-    const csv = rows.map(r => [r.id, escapeCsv(r.name), escapeCsv(r.contact), escapeCsv(r.address), escapeCsv(r.category), escapeCsv(r.otherCategoryText), escapeCsv(r.description), escapeCsv(r.datetime), escapeCsv(r.price), r.created_at].join(',')).join('\n');
+    const csv = rows
+      .map(r => [
+        r.id,
+        escapeCsv(r.name),
+        escapeCsv(r.contact),
+        escapeCsv(r.address),
+        escapeCsv(r.category),
+        escapeCsv(r.otherCategoryText),
+        escapeCsv(r.description),
+        escapeCsv(r.datetime),
+        escapeCsv(r.price),
+        r.created_at
+      ].join(','))
+      .join('\n');
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="tokmaker_applications.csv"');
     res.send(header + csv);
@@ -187,20 +410,18 @@ app.get('/api/admin/export', async (req, res) => {
   }
 });
 
-// Public: update application
 app.put('/api/applications/:id', async (req, res) => {
   try {
-    const adminKey = req.header('x-admin-key') || req.query.adminKey;
+    const adminKey = readAdminKey(req);
     const session = await getSessionFromRequest(req);
-
     const appRow = await db.getApplicationById(req.params.id);
     if (!appRow) return res.status(404).json({ success: false, error: 'Application not found' });
 
-    const isAdmin = adminKey && adminKey === ADMIN_KEY;
+    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
     const isOwner = session && appRow.user_id && session.user_id === appRow.user_id;
     if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    const data = req.body;
+    const data = req.body || {};
     const changes = await db.updateApplication(appRow.id, {
       name: data.name || '',
       contact: data.contact || '',
@@ -209,10 +430,7 @@ app.put('/api/applications/:id', async (req, res) => {
       datetime: data.datetime || '',
       price: data.price || ''
     });
-    if (changes === 0) {
-      return res.status(404).json({ success: false, error: 'Application not found' });
-    }
-    console.log('Application updated:', req.params.id);
+    if (changes === 0) return res.status(404).json({ success: false, error: 'Application not found' });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -220,25 +438,19 @@ app.put('/api/applications/:id', async (req, res) => {
   }
 });
 
-// Public: delete application
 app.delete('/api/applications/:id', async (req, res) => {
   try {
-    const adminKey = req.header('x-admin-key') || req.query.adminKey;
+    const adminKey = readAdminKey(req);
     const session = await getSessionFromRequest(req);
-
     const appRow = await db.getApplicationById(req.params.id);
     if (!appRow) return res.status(404).json({ success: false, error: 'Application not found' });
 
-    const isAdmin = adminKey && adminKey === ADMIN_KEY;
+    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
     const isOwner = session && appRow.user_id && session.user_id === appRow.user_id;
     if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    console.log('DELETE request received for ID:', req.params.id);
     const changes = await db.deleteApplication(appRow.id);
-    if (changes === 0) {
-      return res.status(404).json({ success: false, error: 'Application not found' });
-    }
-    console.log('Application deleted successfully:', req.params.id);
+    if (changes === 0) return res.status(404).json({ success: false, error: 'Application not found' });
     res.json({ success: true });
   } catch (err) {
     console.error('Delete error:', err);
@@ -246,7 +458,6 @@ app.delete('/api/applications/:id', async (req, res) => {
   }
 });
 
-// Authenticated: get own applications
 app.get('/api/applications/my', async (req, res) => {
   try {
     const session = await getSessionFromRequest(req);
@@ -259,23 +470,167 @@ app.get('/api/applications/my', async (req, res) => {
   }
 });
 
+// ========== FAVORITES ==========
+app.get('/api/favorites', async (req, res) => {
+  try {
+    const session = await getSessionFromRequest(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const entityType = normalizeEntityType(req.query.entityType);
+    if (req.query.entityType && !entityType) {
+      return res.status(400).json({ success: false, error: 'entityType must be vacancy or profile' });
+    }
+
+    const rows = await db.getFavoritesByUser(session.user_id, entityType || '');
+    const items = (await Promise.all(rows.map(async (row) => {
+      if (row.entity_type === 'vacancy') {
+        const vacancy = await db.getVacancyById(row.entity_id);
+        if (!vacancy) return null;
+        return {
+          entityType: 'vacancy',
+          entityId: row.entity_id,
+          createdAt: row.created_at,
+          item: { ...normalizeVacancy(vacancy), isFavorite: true }
+        };
+      }
+      if (row.entity_type === 'profile') {
+        const profile = await db.getWorkerProfileById(row.entity_id);
+        if (!profile) return null;
+        return {
+          entityType: 'profile',
+          entityId: row.entity_id,
+          createdAt: row.created_at,
+          item: { ...normalizeProfile(profile), isFavorite: true }
+        };
+      }
+      return null;
+    }))).filter(Boolean);
+    const totals = {
+      vacancy: items.filter(item => item.entityType === 'vacancy').length,
+      profile: items.filter(item => item.entityType === 'profile').length
+    };
+    res.json({ success: true, items, totals });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/favorites', async (req, res) => {
+  try {
+    const session = await getSessionFromRequest(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const entityType = normalizeEntityType(req.body && req.body.entityType);
+    const entityId = Number(req.body && req.body.entityId);
+    if (!entityType) return res.status(400).json({ success: false, error: 'entityType must be vacancy or profile' });
+    if (!Number.isInteger(entityId) || entityId <= 0) return res.status(400).json({ success: false, error: 'entityId must be positive integer' });
+
+    if (entityType === 'vacancy') {
+      const item = await db.getVacancyById(entityId);
+      if (!item) return res.status(404).json({ success: false, error: 'Vacancy not found' });
+    } else {
+      const item = await db.getWorkerProfileById(entityId);
+      if (!item) return res.status(404).json({ success: false, error: 'Profile not found' });
+    }
+
+    await db.addFavorite(session.user_id, entityType, entityId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/favorites/:entityType/:entityId', async (req, res) => {
+  try {
+    const session = await getSessionFromRequest(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const entityType = normalizeEntityType(req.params.entityType);
+    const entityId = Number(req.params.entityId);
+    if (!entityType) return res.status(400).json({ success: false, error: 'entityType must be vacancy or profile' });
+    if (!Number.isInteger(entityId) || entityId <= 0) return res.status(400).json({ success: false, error: 'entityId must be positive integer' });
+
+    await db.removeFavorite(session.user_id, entityType, entityId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ========== VACANCIES ==========
 app.get('/api/vacancies', async (req, res) => {
+  const startedAt = Date.now();
   try {
+    const session = await getSessionFromRequest(req);
+    const payloadFilters = parseFiltersPayload(req.query.filters);
+    const source = { ...payloadFilters, ...req.query };
+    const paging = parsePaginationAndSort(source, ['createdAt', 'title', 'payAmount', 'dateTime'], 'createdAt');
+
     const filters = {
-      query: req.query.query || '',
-      categories: parseList(req.query.category || req.query.categories),
-      schedule: parseList(req.query.schedule || req.query.availability),
-      payMin: req.query.payMin,
-      payMax: req.query.payMax,
-      date: req.query.date,
-      flexibleOnly: parseBoolean(req.query.flexibleOnly),
-      limit: req.query.limit,
-      offset: req.query.offset
+      query: source.query || '',
+      categories: parseList(source.category || source.categories),
+      schedule: parseList(source.schedule || source.availability),
+      payMin: source.payMin,
+      payMax: source.payMax,
+      date: source.date,
+      flexibleOnly: parseBoolean(source.flexibleOnly),
+      sortBy: paging.sortBy,
+      sortOrder: paging.sortOrder,
+      limit: paging.pageSize,
+      offset: paging.offset
     };
-    const rows = await db.searchVacancies(filters);
-    res.json(rows.map(normalizeVacancy));
+
+    const facetFilters = {
+      query: filters.query,
+      categories: filters.categories,
+      schedule: filters.schedule,
+      payMin: filters.payMin,
+      payMax: filters.payMax,
+      date: filters.date,
+      flexibleOnly: filters.flexibleOnly
+    };
+
+    const [rows, total, facets, favoriteIds] = await Promise.all([
+      db.searchVacancies(filters),
+      db.countVacancies(facetFilters),
+      db.getVacancyFacets(facetFilters),
+      session ? db.getFavoriteIdsByUser(session.user_id, 'vacancy') : Promise.resolve([])
+    ]);
+
+    let items = rows.map(normalizeVacancy);
+    if (session) {
+      items = withFavoriteFlag(items, favoriteIds);
+    }
+    if (String(source.legacy || '') === '1') {
+      res.json(items);
+      return;
+    }
+
+    res.json({
+      items,
+      total,
+      page: paging.page,
+      pageSize: paging.pageSize,
+      facets,
+      sort: { sortBy: paging.sortBy, sortOrder: paging.sortOrder }
+    });
+    logMetric('search_requests', {
+      scope: 'vacancies',
+      total,
+      latency_ms: Date.now() - startedAt
+    });
   } catch (err) {
+    logMetric('search_requests', {
+      scope: 'vacancies',
+      error: true,
+      latency_ms: Date.now() - startedAt
+    });
+    if (/must be|Invalid|filters/i.test(err.message)) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: err.message });
   }
@@ -295,9 +650,15 @@ app.get('/api/vacancies/my', async (req, res) => {
 
 app.get('/api/vacancies/:id', async (req, res) => {
   try {
+    const session = await getSessionFromRequest(req);
     const row = await db.getVacancyById(req.params.id);
     if (!row) return res.status(404).json({ error: 'Vacancy not found' });
-    res.json(normalizeVacancy(row));
+    let item = normalizeVacancy(row);
+    if (session) {
+      const favoriteIds = await db.getFavoriteIdsByUser(session.user_id, 'vacancy');
+      item = withFavoriteFlag([item], favoriteIds)[0];
+    }
+    res.json(item);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -321,6 +682,7 @@ app.post('/api/vacancies', async (req, res) => {
     const payAmount = toNumber(data.payAmount || data.pay_amount);
     const payType = data.payType || data.pay_type || '';
     const tags = data.tags || '';
+    const photoUrl = normalizePhotoUrl(data.photoUrl ?? data.photo_url);
 
     if (!contactName || !phone || !title || !description || parseList(categoryIds).length === 0) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
@@ -340,6 +702,7 @@ app.post('/api/vacancies', async (req, res) => {
       pay_amount: payAmount,
       pay_type: payType,
       tags: stringifyList(tags),
+      photo_url: photoUrl || null,
       created_at: now,
       updated_at: now,
       user_id: session.user_id
@@ -354,13 +717,13 @@ app.post('/api/vacancies', async (req, res) => {
 
 app.put('/api/vacancies/:id', async (req, res) => {
   try {
-    const adminKey = req.header('x-admin-key') || req.query.adminKey;
+    const adminKey = readAdminKey(req);
     const session = await getSessionFromRequest(req);
     if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const vacancy = await db.getVacancyById(req.params.id);
     if (!vacancy) return res.status(404).json({ success: false, error: 'Vacancy not found' });
 
-    const isAdmin = adminKey && adminKey === ADMIN_KEY;
+    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
     const isOwner = session && vacancy.user_id && session.user_id === vacancy.user_id;
     if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
@@ -377,6 +740,7 @@ app.put('/api/vacancies/:id', async (req, res) => {
     const payAmount = toNumber(data.payAmount || data.pay_amount);
     const payType = data.payType || data.pay_type || '';
     const tags = data.tags || '';
+    const photoUrl = normalizePhotoUrl(data.photoUrl ?? data.photo_url, vacancy.photo_url || '');
 
     if (!contactName || !phone || !title || !description || parseList(categoryIds).length === 0) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
@@ -395,6 +759,7 @@ app.put('/api/vacancies/:id', async (req, res) => {
       pay_amount: payAmount,
       pay_type: payType,
       tags: stringifyList(tags),
+      photo_url: photoUrl || null,
       updated_at: new Date().toISOString()
     });
 
@@ -407,21 +772,25 @@ app.put('/api/vacancies/:id', async (req, res) => {
 });
 
 app.delete('/api/vacancies/:id', async (req, res) => {
+  const startedAt = Date.now();
   try {
-    const adminKey = req.header('x-admin-key') || req.query.adminKey;
+    const adminKey = readAdminKey(req);
     const session = await getSessionFromRequest(req);
     if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const vacancy = await db.getVacancyById(req.params.id);
     if (!vacancy) return res.status(404).json({ success: false, error: 'Vacancy not found' });
 
-    const isAdmin = adminKey && adminKey === ADMIN_KEY;
+    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
     const isOwner = session && vacancy.user_id && session.user_id === vacancy.user_id;
     if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const changes = await db.deleteVacancy(vacancy.id);
     if (changes === 0) return res.status(404).json({ success: false, error: 'Vacancy not found' });
+    await db.removeFavoritesByEntity('vacancy', vacancy.id);
+    logMetric('delete_attempt', { scope: 'vacancy', success: true, latency_ms: Date.now() - startedAt });
     res.json({ success: true });
   } catch (err) {
+    logMetric('delete_attempt', { scope: 'vacancy', success: false, latency_ms: Date.now() - startedAt });
     console.error(err);
     res.status(500).json({ success: false, error: err.message });
   }
@@ -429,20 +798,74 @@ app.delete('/api/vacancies/:id', async (req, res) => {
 
 // ========== WORKER PROFILES ==========
 app.get('/api/profiles', async (req, res) => {
+  const startedAt = Date.now();
   try {
+    const session = await getSessionFromRequest(req);
+    const payloadFilters = parseFiltersPayload(req.query.filters);
+    const source = { ...payloadFilters, ...req.query };
+    const paging = parsePaginationAndSort(source, ['createdAt', 'headline', 'payMin', 'city'], 'createdAt');
+
     const filters = {
-      query: req.query.query || '',
-      categories: parseList(req.query.category || req.query.categories),
-      availability: parseList(req.query.availability),
-      payMin: req.query.payMin,
-      city: req.query.city,
-      location: req.query.location,
-      limit: req.query.limit,
-      offset: req.query.offset
+      query: source.query || '',
+      categories: parseList(source.category || source.categories),
+      availability: parseList(source.availability),
+      payMin: source.payMin,
+      city: source.city,
+      location: source.location,
+      sortBy: paging.sortBy,
+      sortOrder: paging.sortOrder,
+      limit: paging.pageSize,
+      offset: paging.offset
     };
-    const rows = await db.searchWorkerProfiles(filters);
-    res.json(rows.map(normalizeProfile));
+
+    const facetFilters = {
+      query: filters.query,
+      categories: filters.categories,
+      availability: filters.availability,
+      payMin: filters.payMin,
+      city: filters.city,
+      location: filters.location
+    };
+
+    const [rows, total, facets, favoriteIds] = await Promise.all([
+      db.searchWorkerProfiles(filters),
+      db.countWorkerProfiles(facetFilters),
+      db.getWorkerProfileFacets(facetFilters),
+      session ? db.getFavoriteIdsByUser(session.user_id, 'profile') : Promise.resolve([])
+    ]);
+
+    let items = rows.map(normalizeProfile);
+    if (session) {
+      items = withFavoriteFlag(items, favoriteIds);
+    }
+    if (String(source.legacy || '') === '1') {
+      res.json(items);
+      return;
+    }
+
+    res.json({
+      items,
+      total,
+      page: paging.page,
+      pageSize: paging.pageSize,
+      facets,
+      sort: { sortBy: paging.sortBy, sortOrder: paging.sortOrder }
+    });
+    logMetric('search_requests', {
+      scope: 'profiles',
+      total,
+      latency_ms: Date.now() - startedAt
+    });
   } catch (err) {
+    logMetric('search_requests', {
+      scope: 'profiles',
+      error: true,
+      latency_ms: Date.now() - startedAt
+    });
+    if (/must be|Invalid|filters/i.test(err.message)) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: err.message });
   }
@@ -462,9 +885,15 @@ app.get('/api/profiles/my', async (req, res) => {
 
 app.get('/api/profiles/:id', async (req, res) => {
   try {
+    const session = await getSessionFromRequest(req);
     const row = await db.getWorkerProfileById(req.params.id);
     if (!row) return res.status(404).json({ error: 'Profile not found' });
-    res.json(normalizeProfile(row));
+    let item = normalizeProfile(row);
+    if (session) {
+      const favoriteIds = await db.getFavoriteIdsByUser(session.user_id, 'profile');
+      item = withFavoriteFlag([item], favoriteIds)[0];
+    }
+    res.json(item);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -492,6 +921,7 @@ app.post('/api/profiles', async (req, res) => {
     const contactMethods = data.contactMethods || data.contact_methods || [];
     const age = toNumber(data.age);
     const tags = data.tags || '';
+    const photoUrl = normalizePhotoUrl(data.photoUrl ?? data.photo_url);
 
     if (!name || !phone || parseList(categories).length === 0 || !headline || parseList(availability).length === 0 || !payType || payMin == null || !city || !locationText || !about) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
@@ -515,6 +945,7 @@ app.post('/api/profiles', async (req, res) => {
       contact_methods: stringifyList(contactMethods),
       age,
       tags: stringifyList(tags),
+      photo_url: photoUrl || null,
       created_at: now,
       updated_at: now,
       user_id: session.user_id
@@ -529,13 +960,13 @@ app.post('/api/profiles', async (req, res) => {
 
 app.put('/api/profiles/:id', async (req, res) => {
   try {
-    const adminKey = req.header('x-admin-key') || req.query.adminKey;
+    const adminKey = readAdminKey(req);
     const session = await getSessionFromRequest(req);
     if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const profile = await db.getWorkerProfileById(req.params.id);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
 
-    const isAdmin = adminKey && adminKey === ADMIN_KEY;
+    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
     const isOwner = session && profile.user_id && session.user_id === profile.user_id;
     if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
@@ -556,6 +987,7 @@ app.put('/api/profiles/:id', async (req, res) => {
     const contactMethods = data.contactMethods || data.contact_methods || [];
     const age = toNumber(data.age);
     const tags = data.tags || '';
+    const photoUrl = normalizePhotoUrl(data.photoUrl ?? data.photo_url, profile.photo_url || '');
 
     if (!name || !phone || parseList(categories).length === 0 || !headline || parseList(availability).length === 0 || !payType || payMin == null || !city || !locationText || !about) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
@@ -578,6 +1010,7 @@ app.put('/api/profiles/:id', async (req, res) => {
       contact_methods: stringifyList(contactMethods),
       age,
       tags: stringifyList(tags),
+      photo_url: photoUrl || null,
       updated_at: new Date().toISOString()
     });
 
@@ -590,19 +1023,52 @@ app.put('/api/profiles/:id', async (req, res) => {
 });
 
 app.delete('/api/profiles/:id', async (req, res) => {
+  const startedAt = Date.now();
   try {
-    const adminKey = req.header('x-admin-key') || req.query.adminKey;
+    const adminKey = readAdminKey(req);
     const session = await getSessionFromRequest(req);
     if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const profile = await db.getWorkerProfileById(req.params.id);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
 
-    const isAdmin = adminKey && adminKey === ADMIN_KEY;
+    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
     const isOwner = session && profile.user_id && session.user_id === profile.user_id;
     if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const changes = await db.deleteWorkerProfile(profile.id);
     if (changes === 0) return res.status(404).json({ success: false, error: 'Profile not found' });
+    await db.removeFavoritesByEntity('profile', profile.id);
+    logMetric('delete_attempt', { scope: 'profile', success: true, latency_ms: Date.now() - startedAt });
+    res.json({ success: true });
+  } catch (err) {
+    logMetric('delete_attempt', { scope: 'profile', success: false, latency_ms: Date.now() - startedAt });
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ========== AUTH ==========
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const session = await getSessionFromRequest(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const user = await db.getUserById(session.user_id);
+    if (!user) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    res.json({
+      success: true,
+      user: { id: user.id, name: user.name, email: user.email }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const token = getTokenFromRequest(req);
+    if (!token) return res.status(400).json({ success: false, error: 'Missing session token' });
+    await db.deleteSessionByToken(token);
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -610,27 +1076,36 @@ app.delete('/api/profiles/:id', async (req, res) => {
   }
 });
 
-// Auth: register
+app.post('/api/auth/logout-all', async (req, res) => {
+  try {
+    const session = await getSessionFromRequest(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const deleted = await db.deleteSessionsByUserId(session.user_id);
+    res.json({ success: true, deleted });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password } = req.body || {};
 
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, error: 'Missing fields' });
     }
 
-    const user = await db.getUserByEmail(email);
-    if (user) {
+    const existing = await db.getUserByEmail(email);
+    if (existing) {
       return res.status(400).json({ success: false, error: 'Email already exists' });
     }
 
-    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
-    const userId = await db.createUser({ name, email, password: hashedPassword });
-
+    const passwordHash = await hashPassword(password);
+    const userId = await db.createUser({ name, email, password: passwordHash });
     const token = crypto.randomBytes(32).toString('hex');
     await db.createSession(userId, token);
 
-    console.log('User registered:', email);
     res.json({
       success: true,
       token,
@@ -642,29 +1117,37 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Auth: login
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-
+    const { email, password } = req.body || {};
     if (!email || !password) {
       return res.status(400).json({ success: false, error: 'Missing fields' });
     }
 
     const user = await db.getUserByEmail(email);
-    if (!user) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!user) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+
+    let passwordValid = false;
+    const stored = user.password || '';
+
+    if (isBcryptHash(stored)) {
+      passwordValid = await bcrypt.compare(password, stored);
+    } else {
+      const legacyHash = hashLegacySha256(password);
+      if (legacyHash === stored) {
+        passwordValid = true;
+        const upgradedHash = await hashPassword(password);
+        await db.updateUserPassword(user.id, upgradedHash);
+      }
     }
 
-    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
-    if (user.password !== hashedPassword) {
+    if (!passwordValid) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const token = crypto.randomBytes(32).toString('hex');
     await db.createSession(user.id, token);
 
-    console.log('User logged in:', email);
     res.json({
       success: true,
       token,
@@ -676,18 +1159,10 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Catch-all 404 handler (ВАЖНО: должен быть ПОСЛЕ всех остальных routes)
 app.use((req, res) => {
-  console.log('404 - Not found:', req.method, req.path);
   res.status(404).json({ error: 'Endpoint not found', path: req.path, method: req.method });
 });
 
-function escapeCsv(s) {
-  if (s == null) return '';
-  return '"' + String(s).replace(/"/g, '""') + '"';
-}
-
 app.listen(PORT, () => {
   console.log(`JARDAM4Y server running on http://localhost:${PORT}`);
-  console.log('ADMIN_KEY=' + ADMIN_KEY);
 });
