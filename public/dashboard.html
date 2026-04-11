@@ -14,6 +14,7 @@
         <p class="header-tagline">Личный кабинет</p>
       </div>
       <div class="header-actions" style="margin-left:auto;">
+        <button type="button" class="btn secondary" id="dashboardAdminBtn" style="display:none;">Админ-панель</button>
         <button type="button" class="btn secondary" onclick="location.href='/marketplace'">Маркетплейс</button>
         <button type="button" class="btn muted" id="dashboardLogoutBtn">Выйти</button>
       </div>
@@ -26,8 +27,8 @@
     <section class="card">
       <div class="dashboard-header">
         <div>
-          <h2>Мои карточки</h2>
-          <p class="hero-subtitle">Здесь собраны опубликованные вами услуги и вакансии. Их можно открыть, редактировать и удалять.</p>
+          <h2 id="dashboardTitle">Мои карточки</h2>
+          <p class="hero-subtitle" id="dashboardSubtitle">Здесь собраны опубликованные вами услуги и вакансии. Их можно открыть, редактировать и удалять.</p>
         </div>
         <div class="dashboard-tabs">
           <button type="button" class="dashboard-tab active" data-tab="service">Услуги</button>

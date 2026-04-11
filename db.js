@@ -194,6 +194,7 @@ exports.init = () => {
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
+      is_admin INTEGER DEFAULT 0,
       created_at TEXT
     )
   `);
@@ -305,6 +306,10 @@ exports.init = () => {
     { name: 'user_id', type: 'INTEGER' }
   ]);
 
+  ensureColumns('users', [
+    { name: 'is_admin', type: 'INTEGER DEFAULT 0' }
+  ]);
+
   ensureColumns('worker_profiles', [
     { name: 'name', type: 'TEXT' },
     { name: 'phone', type: 'TEXT' },
@@ -327,6 +332,35 @@ exports.init = () => {
     { name: 'updated_at', type: 'TEXT' },
     { name: 'user_id', type: 'INTEGER' }
   ]);
+
+  db.all('PRAGMA table_info(users)', (pragmaErr, rows) => {
+    if (pragmaErr) {
+      console.error('Admin bootstrap check failed', pragmaErr);
+      return;
+    }
+
+    const hasIsAdminColumn = Array.isArray(rows) && rows.some((row) => row.name === 'is_admin');
+    if (!hasIsAdminColumn) return;
+
+    db.get('SELECT COUNT(*) AS total FROM users WHERE COALESCE(is_admin, 0) = 1', (countErr, row) => {
+      if (countErr) {
+        console.error('Admin bootstrap count failed', countErr);
+        return;
+      }
+
+      if (row && row.total > 0) return;
+
+      db.run(
+        'UPDATE users SET is_admin = 1 WHERE lower(email) = lower(?)',
+        ['admin@tokmaker.kg'],
+        (updateErr) => {
+          if (updateErr) {
+            console.error('Default admin bootstrap failed', updateErr);
+          }
+        }
+      );
+    });
+  });
 
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at DESC)',
@@ -436,10 +470,19 @@ exports.getUserById = (id) => {
   });
 };
 
+exports.countAdminUsers = () => {
+  return new Promise((resolve, reject) => {
+    db.get('SELECT COUNT(*) AS total FROM users WHERE COALESCE(is_admin, 0) = 1', (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.total : 0);
+    });
+  });
+};
+
 exports.createUser = (data) => {
   return new Promise((resolve, reject) => {
-    const sql = 'INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?)';
-    db.run(sql, [data.name, data.email, data.password, new Date().toISOString()], function (err) {
+    const sql = 'INSERT INTO users (name, email, password, is_admin, created_at) VALUES (?, ?, ?, ?, ?)';
+    db.run(sql, [data.name, data.email, data.password, data.is_admin ? 1 : 0, new Date().toISOString()], function (err) {
       if (err) reject(err);
       else resolve(this.lastID);
     });
@@ -615,6 +658,15 @@ exports.getVacancyById = (id) => {
 exports.getVacanciesByUserId = (userId) => {
   return new Promise((resolve, reject) => {
     db.all('SELECT * FROM vacancies WHERE user_id = ? ORDER BY created_at DESC', [userId], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+};
+
+exports.getAllVacancies = () => {
+  return new Promise((resolve, reject) => {
+    db.all('SELECT * FROM vacancies ORDER BY created_at DESC', (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
     });
@@ -824,6 +876,15 @@ exports.getWorkerProfileById = (id) => {
 exports.getWorkerProfilesByUserId = (userId) => {
   return new Promise((resolve, reject) => {
     db.all('SELECT * FROM worker_profiles WHERE user_id = ? ORDER BY created_at DESC', [userId], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+};
+
+exports.getAllWorkerProfiles = () => {
+  return new Promise((resolve, reject) => {
+    db.all('SELECT * FROM worker_profiles ORDER BY created_at DESC', (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
     });

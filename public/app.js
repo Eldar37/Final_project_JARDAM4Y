@@ -20,7 +20,8 @@ const PAY_TYPE_LABELS = {
   fixed: 'за работу'
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await syncStoredUser();
   initVacancyForm();
   initProfileForm();
   initVacanciesList();
@@ -150,9 +151,37 @@ function getCurrentUser() {
   }
 }
 
+async function syncStoredUser() {
+  const token = localStorage.getItem('token');
+  if (!token) return null;
+
+  try {
+    const res = await fetch('/api/auth/me', { headers: { ...getTokenHeader() } });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || !payload || !payload.success || !payload.user) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      return null;
+    }
+
+    localStorage.setItem('user', JSON.stringify(payload.user));
+    return payload.user;
+  } catch (err) {
+    return getCurrentUser();
+  }
+}
+
+function isAdminUser(currentUser) {
+  return !!(currentUser && (currentUser.isAdmin || currentUser.is_admin));
+}
+
 function isOwner(currentUser, itemUserId) {
   if (!currentUser || currentUser.id == null || itemUserId == null) return false;
   return String(currentUser.id) === String(itemUserId);
+}
+
+function canManageItem(currentUser, itemUserId) {
+  return isAdminUser(currentUser) || isOwner(currentUser, itemUserId);
 }
 
 function isValidPhone(value) {
@@ -899,7 +928,7 @@ function initVacanciesList() {
   }
 
   function renderVacancyCard(item) {
-    const canEdit = isOwner(currentUser, item.userId);
+    const canEdit = canManageItem(currentUser, item.userId);
     const categories = (item.categoryIds || []).map(cat => `<span class="tag">${escapeHtml(cat)}</span>`).join(' ');
     const schedule = (item.schedule || []).map(s => `<span class="tag">${escapeHtml(s)}</span>`).join(' ');
     const timeText = item.isFlexibleTime ? 'По договорённости' : (item.dateTime ? new Date(item.dateTime).toLocaleString('ru-RU') : '—');
@@ -942,7 +971,7 @@ function initVacanciesList() {
       ${item.tags && item.tags.length ? `<p><strong>Теги:</strong> ${item.tags.map(tag => escapeHtml(tag)).join(', ')}</p>` : ''}
     `;
 
-    const canEdit = isOwner(currentUser, item.userId);
+    const canEdit = canManageItem(currentUser, item.userId);
     if (editBtn) editBtn.style.display = canEdit ? 'inline-block' : 'none';
     if (deleteBtn) deleteBtn.style.display = canEdit ? 'inline-block' : 'none';
 
@@ -964,7 +993,7 @@ function initVacanciesList() {
 
     modalDetail.innerHTML = buildVacancyDetailMarkup(item, categories, schedule, timeText);
 
-    const canEdit = isOwner(currentUser, item.userId);
+    const canEdit = canManageItem(currentUser, item.userId);
     if (editBtn) editBtn.style.display = canEdit ? 'inline-block' : 'none';
     if (deleteBtn) deleteBtn.style.display = canEdit ? 'inline-block' : 'none';
 
@@ -1275,7 +1304,7 @@ function initProfilesList() {
   }
 
   function renderProfileCard(item) {
-    const canEdit = isOwner(currentUser, item.userId);
+    const canEdit = canManageItem(currentUser, item.userId);
     const categories = (item.categories || []).map(cat => `<span class="tag">${escapeHtml(cat)}</span>`).join(' ');
     const availability = (item.availability || []).map(s => `<span class="tag">${escapeHtml(s)}</span>`).join(' ');
     const payText = formatPay(item.payMin, item.payType);
@@ -1318,7 +1347,7 @@ function initProfilesList() {
       ${item.contactMethods && item.contactMethods.length ? `<p><strong>Связь:</strong> ${item.contactMethods.map(c => escapeHtml(c)).join(', ')}</p>` : ''}
     `;
 
-    const canEdit = isOwner(currentUser, item.userId);
+    const canEdit = canManageItem(currentUser, item.userId);
     if (editBtn) editBtn.style.display = canEdit ? 'inline-block' : 'none';
     if (deleteBtn) deleteBtn.style.display = canEdit ? 'inline-block' : 'none';
 
@@ -1339,7 +1368,7 @@ function initProfilesList() {
 
     modalDetail.innerHTML = buildProfileDetailMarkup(item, categories, availability);
 
-    const canEdit = isOwner(currentUser, item.userId);
+    const canEdit = canManageItem(currentUser, item.userId);
     if (editBtn) editBtn.style.display = canEdit ? 'inline-block' : 'none';
     if (deleteBtn) deleteBtn.style.display = canEdit ? 'inline-block' : 'none';
 

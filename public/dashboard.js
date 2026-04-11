@@ -2,7 +2,8 @@ const dashboardState = {
   activeTab: 'service',
   services: [],
   vacancies: [],
-  selectedItem: null
+  selectedItem: null,
+  currentUser: null
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -84,8 +85,42 @@ async function initDashboard() {
     return;
   }
 
+  const mePayload = await meResponse.json();
+  dashboardState.currentUser = mePayload.user || null;
+  if (dashboardState.currentUser) {
+    localStorage.setItem('user', JSON.stringify(dashboardState.currentUser));
+  }
+
   bindDashboardEvents();
+  syncDashboardRoleUi();
   await loadDashboardData();
+}
+
+function syncDashboardRoleUi() {
+  const user = dashboardState.currentUser || {};
+  const adminBtn = document.getElementById('dashboardAdminBtn');
+  const title = document.getElementById('dashboardTitle');
+  const subtitle = document.getElementById('dashboardSubtitle');
+
+  if (user.isAdmin) {
+    if (adminBtn) {
+      adminBtn.style.display = 'inline-flex';
+      adminBtn.addEventListener('click', () => {
+        location.href = '/admin.html';
+      });
+    }
+    if (title) title.textContent = 'Все карточки';
+    if (subtitle) {
+      subtitle.textContent = 'Как администратор, вы видите все услуги и вакансии и можете редактировать или удалять любые карточки.';
+    }
+    return;
+  }
+
+  if (adminBtn) adminBtn.style.display = 'none';
+  if (title) title.textContent = 'Мои карточки';
+  if (subtitle) {
+    subtitle.textContent = 'Здесь собраны опубликованные вами услуги и вакансии. Их можно открыть, редактировать и удалять.';
+  }
 }
 
 function bindDashboardEvents() {

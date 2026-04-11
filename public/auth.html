@@ -118,6 +118,40 @@
       box-shadow: 0 0 0 4px rgba(242, 188, 32, 0.16);
     }
 
+    .admin-toggle {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(45, 99, 164, 0.05);
+      border: 1px solid rgba(45, 99, 164, 0.12);
+    }
+
+    .admin-toggle label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .admin-toggle input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+
+    .hint-text {
+      margin: 8px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .admin-key-wrap {
+      display: none;
+    }
+
+    .admin-key-wrap.show {
+      display: block;
+    }
+
     .auth-button {
       width: 100%;
       padding: 14px;
@@ -195,6 +229,19 @@
           <input type="password" name="confirmPassword" required placeholder="••••••••" minlength="3">
         </div>
 
+        <div class="form-group admin-toggle">
+          <label>
+            <input type="checkbox" name="registerAsAdmin" id="registerAsAdmin">
+            Зарегистрировать этот аккаунт как администратора
+          </label>
+          <p class="hint-text">Обычно нужен ключ администратора `ADMIN_KEY`. Если админов в системе ещё нет, первый администратор может зарегистрироваться без него.</p>
+        </div>
+
+        <div class="form-group admin-key-wrap" id="adminKeyWrap">
+          <label>Ключ администратора *</label>
+          <input type="password" name="adminKey" id="registerAdminKey" placeholder="Введите ключ администратора">
+        </div>
+
         <button type="submit" class="auth-button">Зарегистрироваться</button>
       </form>
     </div>
@@ -222,11 +269,40 @@
   </footer>
 
   <script>
+    function getStoredUser() {
+      try {
+        return JSON.parse(localStorage.getItem('user') || '{}');
+      } catch (err) {
+        return {};
+      }
+    }
+
     function getRedirectTarget() {
       const params = new URLSearchParams(window.location.search);
       const next = params.get('next');
-      if (!next) return '/marketplace';
+      if (!next) {
+        const user = getStoredUser();
+        return user && user.isAdmin ? '/admin.html' : '/marketplace';
+      }
       return next.startsWith('/') ? next : '/marketplace';
+    }
+
+    function resolvePostAuthTarget(user) {
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get('next');
+      if (next && next.startsWith('/')) return next;
+      return user && user.isAdmin ? '/admin.html' : '/marketplace';
+    }
+
+    function toggleAdminKeyField() {
+      const checkbox = document.getElementById('registerAsAdmin');
+      const wrapper = document.getElementById('adminKeyWrap');
+      const input = document.getElementById('registerAdminKey');
+      if (!checkbox || !wrapper || !input) return;
+      const enabled = checkbox.checked;
+      wrapper.classList.toggle('show', enabled);
+      input.required = enabled;
+      if (!enabled) input.value = '';
     }
 
     // Переключение вкладок
@@ -266,7 +342,9 @@
           body: JSON.stringify({
             name: data.name,
             email: data.email,
-            password: data.password
+            password: data.password,
+            registerAsAdmin: data.registerAsAdmin === 'on',
+            adminKey: data.adminKey || ''
           })
         });
 
@@ -276,7 +354,7 @@
           showMessage('Регистрация успешна! Выполняем вход...', 'success');
           localStorage.setItem('token', result.token);
           localStorage.setItem('user', JSON.stringify(result.user));
-          setTimeout(() => location.href = getRedirectTarget(), 1200);
+          setTimeout(() => location.href = resolvePostAuthTarget(result.user), 1200);
         } else {
           showMessage(result.error || 'Ошибка регистрации', 'error');
         }
@@ -308,7 +386,7 @@
           showMessage('Вход успешен!', 'success');
           localStorage.setItem('token', result.token);
           localStorage.setItem('user', JSON.stringify(result.user));
-          setTimeout(() => location.href = getRedirectTarget(), 900);
+          setTimeout(() => location.href = resolvePostAuthTarget(result.user), 900);
         } else {
           showMessage(result.error || 'Ошибка входа', 'error');
         }
@@ -320,6 +398,11 @@
 
     // Проверка авторизации при загрузке
     window.addEventListener('load', () => {
+      toggleAdminKeyField();
+      const registerAsAdmin = document.getElementById('registerAsAdmin');
+      if (registerAsAdmin) {
+        registerAsAdmin.addEventListener('change', toggleAdminKeyField);
+      }
       if (localStorage.getItem('token')) {
         location.href = getRedirectTarget();
       }

@@ -46,7 +46,7 @@ const upload = multer({
 });
 
 if (!ADMIN_KEY) {
-  console.warn('ADMIN_KEY is not set. Admin endpoints are disabled.');
+  console.warn('ADMIN_KEY is not set. Key-based admin access and additional admin registration are disabled.');
 }
 
 function parseList(value) {
@@ -171,21 +171,50 @@ async function getSessionFromRequest(req) {
   }
 }
 
+function buildUserDto(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    isAdmin: !!user.is_admin
+  };
+}
+
+function isUserAdmin(user) {
+  return !!(user && user.is_admin);
+}
+
 function readAdminKey(req) {
   return req.header('x-admin-key') || req.query.adminKey;
 }
 
-function requireAdmin(req, res) {
-  if (!ADMIN_KEY) {
-    res.status(503).json({ error: 'Admin key is not configured' });
-    return false;
+async function getRequestAuth(req) {
+  const adminKey = readAdminKey(req);
+  const session = await getSessionFromRequest(req);
+  const user = session ? await db.getUserById(session.user_id) : null;
+  const hasValidAdminKey = !!ADMIN_KEY && !!adminKey && adminKey === ADMIN_KEY;
+
+  return {
+    adminKey,
+    session,
+    user,
+    hasValidAdminKey,
+    isAdmin: hasValidAdminKey || isUserAdmin(user)
+  };
+}
+
+async function requireAdmin(req, res) {
+  const auth = await getRequestAuth(req);
+  if (auth.isAdmin) return auth;
+
+  if (auth.session) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
   }
-  const key = readAdminKey(req);
-  if (!key || key !== ADMIN_KEY) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return false;
-  }
-  return true;
+
+  res.status(401).json({ error: 'Unauthorized' });
+  return null;
 }
 
 function parseFiltersPayload(value) {
@@ -364,8 +393,9 @@ app.get('/api/applications/public', async (req, res) => {
 });
 
 app.get('/api/admin/applications', async (req, res) => {
-  if (!requireAdmin(req, res)) return;
   try {
+    const auth = await requireAdmin(req, res);
+    if (!auth) return;
     const rows = await db.getAllApplications();
     res.json(rows);
   } catch (err) {
@@ -374,8 +404,9 @@ app.get('/api/admin/applications', async (req, res) => {
 });
 
 app.get('/api/admin/applications/:id', async (req, res) => {
-  if (!requireAdmin(req, res)) return;
   try {
+    const auth = await requireAdmin(req, res);
+    if (!auth) return;
     const row = await db.getApplicationById(req.params.id);
     res.json(row || {});
   } catch (err) {
@@ -384,8 +415,9 @@ app.get('/api/admin/applications/:id', async (req, res) => {
 });
 
 app.get('/api/admin/export', async (req, res) => {
-  if (!requireAdmin(req, res)) return;
   try {
+    const auth = await requireAdmin(req, res);
+    if (!auth) return;
     const rows = await db.getAllApplications();
     const header = 'id,name,contact,address,category,otherCategoryText,description,datetime,price,created_at\n';
     const csv = rows
@@ -412,14 +444,16 @@ app.get('/api/admin/export', async (req, res) => {
 
 app.put('/api/applications/:id', async (req, res) => {
   try {
-    const adminKey = readAdminKey(req);
-    const session = await getSessionFromRequest(req);
+    const auth = await getRequestAuth(req);
     const appRow = await db.getApplicationById(req.params.id);
     if (!appRow) return res.status(404).json({ success: false, error: 'Application not found' });
 
-    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
-    const isOwner = session && appRow.user_id && session.user_id === appRow.user_id;
-    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
+    if (!auth.session && !auth.hasValidAdminKey) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const isOwner = auth.session && appRow.user_id && auth.session.user_id === appRow.user_id;
+    if (!auth.isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const data = req.body || {};
     const changes = await db.updateApplication(appRow.id, {
@@ -440,14 +474,16 @@ app.put('/api/applications/:id', async (req, res) => {
 
 app.delete('/api/applications/:id', async (req, res) => {
   try {
-    const adminKey = readAdminKey(req);
-    const session = await getSessionFromRequest(req);
+    const auth = await getRequestAuth(req);
     const appRow = await db.getApplicationById(req.params.id);
     if (!appRow) return res.status(404).json({ success: false, error: 'Application not found' });
 
-    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
-    const isOwner = session && appRow.user_id && session.user_id === appRow.user_id;
-    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
+    if (!auth.session && !auth.hasValidAdminKey) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const isOwner = auth.session && appRow.user_id && auth.session.user_id === appRow.user_id;
+    if (!auth.isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const changes = await db.deleteApplication(appRow.id);
     if (changes === 0) return res.status(404).json({ success: false, error: 'Application not found' });
@@ -460,9 +496,11 @@ app.delete('/api/applications/:id', async (req, res) => {
 
 app.get('/api/applications/my', async (req, res) => {
   try {
-    const session = await getSessionFromRequest(req);
-    if (!session) return res.status(401).json({ error: 'Unauthorized' });
-    const rows = await db.getApplicationsByUserId(session.user_id);
+    const auth = await getRequestAuth(req);
+    if (!auth.session) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = auth.user && isUserAdmin(auth.user)
+      ? await db.getAllApplications()
+      : await db.getApplicationsByUserId(auth.session.user_id);
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -638,9 +676,11 @@ app.get('/api/vacancies', async (req, res) => {
 
 app.get('/api/vacancies/my', async (req, res) => {
   try {
-    const session = await getSessionFromRequest(req);
-    if (!session) return res.status(401).json({ error: 'Unauthorized' });
-    const rows = await db.getVacanciesByUserId(session.user_id);
+    const auth = await getRequestAuth(req);
+    if (!auth.session) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = auth.user && isUserAdmin(auth.user)
+      ? await db.getAllVacancies()
+      : await db.getVacanciesByUserId(auth.session.user_id);
     res.json(rows.map(normalizeVacancy));
   } catch (err) {
     console.error(err);
@@ -717,15 +757,13 @@ app.post('/api/vacancies', async (req, res) => {
 
 app.put('/api/vacancies/:id', async (req, res) => {
   try {
-    const adminKey = readAdminKey(req);
-    const session = await getSessionFromRequest(req);
-    if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const auth = await getRequestAuth(req);
+    if (!auth.session && !auth.hasValidAdminKey) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const vacancy = await db.getVacancyById(req.params.id);
     if (!vacancy) return res.status(404).json({ success: false, error: 'Vacancy not found' });
 
-    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
-    const isOwner = session && vacancy.user_id && session.user_id === vacancy.user_id;
-    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
+    const isOwner = auth.session && vacancy.user_id && auth.session.user_id === vacancy.user_id;
+    if (!auth.isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const data = req.body || {};
     const contactName = data.contactName || data.contact_name || '';
@@ -774,15 +812,13 @@ app.put('/api/vacancies/:id', async (req, res) => {
 app.delete('/api/vacancies/:id', async (req, res) => {
   const startedAt = Date.now();
   try {
-    const adminKey = readAdminKey(req);
-    const session = await getSessionFromRequest(req);
-    if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const auth = await getRequestAuth(req);
+    if (!auth.session && !auth.hasValidAdminKey) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const vacancy = await db.getVacancyById(req.params.id);
     if (!vacancy) return res.status(404).json({ success: false, error: 'Vacancy not found' });
 
-    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
-    const isOwner = session && vacancy.user_id && session.user_id === vacancy.user_id;
-    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
+    const isOwner = auth.session && vacancy.user_id && auth.session.user_id === vacancy.user_id;
+    if (!auth.isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const changes = await db.deleteVacancy(vacancy.id);
     if (changes === 0) return res.status(404).json({ success: false, error: 'Vacancy not found' });
@@ -873,9 +909,11 @@ app.get('/api/profiles', async (req, res) => {
 
 app.get('/api/profiles/my', async (req, res) => {
   try {
-    const session = await getSessionFromRequest(req);
-    if (!session) return res.status(401).json({ error: 'Unauthorized' });
-    const rows = await db.getWorkerProfilesByUserId(session.user_id);
+    const auth = await getRequestAuth(req);
+    if (!auth.session) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = auth.user && isUserAdmin(auth.user)
+      ? await db.getAllWorkerProfiles()
+      : await db.getWorkerProfilesByUserId(auth.session.user_id);
     res.json(rows.map(normalizeProfile));
   } catch (err) {
     console.error(err);
@@ -960,15 +998,13 @@ app.post('/api/profiles', async (req, res) => {
 
 app.put('/api/profiles/:id', async (req, res) => {
   try {
-    const adminKey = readAdminKey(req);
-    const session = await getSessionFromRequest(req);
-    if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const auth = await getRequestAuth(req);
+    if (!auth.session && !auth.hasValidAdminKey) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const profile = await db.getWorkerProfileById(req.params.id);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
 
-    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
-    const isOwner = session && profile.user_id && session.user_id === profile.user_id;
-    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
+    const isOwner = auth.session && profile.user_id && auth.session.user_id === profile.user_id;
+    if (!auth.isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const data = req.body || {};
     const name = data.name || '';
@@ -1025,15 +1061,13 @@ app.put('/api/profiles/:id', async (req, res) => {
 app.delete('/api/profiles/:id', async (req, res) => {
   const startedAt = Date.now();
   try {
-    const adminKey = readAdminKey(req);
-    const session = await getSessionFromRequest(req);
-    if (!adminKey && !session) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const auth = await getRequestAuth(req);
+    if (!auth.session && !auth.hasValidAdminKey) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const profile = await db.getWorkerProfileById(req.params.id);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
 
-    const isAdmin = !!ADMIN_KEY && adminKey && adminKey === ADMIN_KEY;
-    const isOwner = session && profile.user_id && session.user_id === profile.user_id;
-    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
+    const isOwner = auth.session && profile.user_id && auth.session.user_id === profile.user_id;
+    if (!auth.isAdmin && !isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const changes = await db.deleteWorkerProfile(profile.id);
     if (changes === 0) return res.status(404).json({ success: false, error: 'Profile not found' });
@@ -1056,7 +1090,7 @@ app.get('/api/auth/me', async (req, res) => {
     if (!user) return res.status(401).json({ success: false, error: 'Unauthorized' });
     res.json({
       success: true,
-      user: { id: user.id, name: user.name, email: user.email }
+      user: buildUserDto(user)
     });
   } catch (err) {
     console.error(err);
@@ -1090,7 +1124,9 @@ app.post('/api/auth/logout-all', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body || {};
+    const body = req.body || {};
+    const { name, email, password } = body;
+    const wantsAdmin = parseBoolean(body.registerAsAdmin || body.isAdmin || body.is_admin);
 
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, error: 'Missing fields' });
@@ -1101,15 +1137,33 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Email already exists' });
     }
 
+    if (wantsAdmin) {
+      const adminCount = await db.countAdminUsers();
+      const hasValidAdminKey = !!ADMIN_KEY && !!body.adminKey && body.adminKey === ADMIN_KEY;
+      const canBootstrapFirstAdmin = !ADMIN_KEY && adminCount === 0;
+
+      if (!hasValidAdminKey && !canBootstrapFirstAdmin) {
+        if (!ADMIN_KEY) {
+          return res.status(503).json({ success: false, error: 'Admin registration is disabled until ADMIN_KEY is configured' });
+        }
+        return res.status(403).json({ success: false, error: 'Invalid admin key' });
+      }
+    }
+
     const passwordHash = await hashPassword(password);
-    const userId = await db.createUser({ name, email, password: passwordHash });
+    const userId = await db.createUser({
+      name,
+      email,
+      password: passwordHash,
+      is_admin: wantsAdmin ? 1 : 0
+    });
     const token = crypto.randomBytes(32).toString('hex');
     await db.createSession(userId, token);
 
     res.json({
       success: true,
       token,
-      user: { id: userId, name, email }
+      user: { id: userId, name, email, isAdmin: wantsAdmin }
     });
   } catch (err) {
     console.error(err);
@@ -1151,7 +1205,7 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({
       success: true,
       token,
-      user: { id: user.id, name: user.name, email: user.email }
+      user: buildUserDto(user)
     });
   } catch (err) {
     console.error(err);

@@ -24,6 +24,7 @@ db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, row) => {
   } else {
     if (row) {
       console.log('User found:', row);
+      console.log('Is admin:', !!row.is_admin);
       const bcryptMatch = row.password && row.password.startsWith('$2') ? bcrypt.compareSync(password, row.password) : false;
       if (row.password === hashedPassword || bcryptMatch) {
         console.log('Password match: YES');

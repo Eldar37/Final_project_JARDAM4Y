@@ -16,9 +16,9 @@ const password = '123';
 const hashedPassword = bcrypt.hashSync(password, 12);
 const createdAt = new Date().toISOString();
 
-const sql = `INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?)`;
+const sql = `INSERT INTO users (name, email, password, is_admin, created_at) VALUES (?, ?, ?, ?, ?)`;
 
-db.run(sql, [name, email, hashedPassword, createdAt], function (err) {
+db.run(sql, [name, email, hashedPassword, 1, createdAt], function (err) {
     if (err) {
         console.error('Error creating user:', err.message);
     } else {

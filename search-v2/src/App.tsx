@@ -91,6 +91,14 @@ function isOwner(currentUser: UserDTO | null, itemUserId: number | null) {
   return String(currentUser.id) === String(itemUserId);
 }
 
+function isAdminUser(currentUser: UserDTO | null) {
+  return !!(currentUser && currentUser.isAdmin);
+}
+
+function canManageItem(currentUser: UserDTO | null, itemUserId: number | null) {
+  return isAdminUser(currentUser) || isOwner(currentUser, itemUserId);
+}
+
 function getPathConfig() {
   const pathname = window.location.pathname;
   const params = new URLSearchParams(window.location.search);
@@ -235,6 +243,7 @@ export default function App() {
   const isMarketplaceScreen = pathConfig.pathname.includes('/marketplace');
   const isFavoritesScreen = pathConfig.pathname.includes('/favorites');
   const detailIsOwner = !!detail && isOwner(currentUser, detail.item.userId);
+  const detailCanManage = !!detail && canManageItem(currentUser, detail.item.userId);
 
   async function refreshFavorites() {
     const token = window.localStorage.getItem('token');
@@ -284,6 +293,7 @@ export default function App() {
       try {
         const user = await fetchCurrentUser();
         if (!canceled) setCurrentUser(user);
+        window.localStorage.setItem('user', JSON.stringify(user));
       } catch {
         window.localStorage.removeItem('token');
         window.localStorage.removeItem('user');
@@ -919,7 +929,7 @@ export default function App() {
                         <h2>{formatServiceTitle(detail.item)}</h2>
                         <p className="detail-subtitle">{detail.item.name || 'Исполнитель'} · {formatPay(detail.item.payMin, detail.item.payType)}</p>
                       </div>
-                      {detailIsOwner && <span className="owner-badge">Моя карточка</span>}
+                      {detailCanManage && <span className="owner-badge">{detailIsOwner ? 'Моя карточка' : 'Админ-доступ'}</span>}
                     </div>
 
                     <div className="detail-tags">
@@ -977,7 +987,7 @@ export default function App() {
                         <h2>{detail.item.title || 'Вакансия'}</h2>
                         <p className="detail-subtitle">{formatPay(detail.item.payAmount, detail.item.payType)}</p>
                       </div>
-                      {detailIsOwner && <span className="owner-badge">Моя карточка</span>}
+                      {detailCanManage && <span className="owner-badge">{detailIsOwner ? 'Моя карточка' : 'Админ-доступ'}</span>}
                     </div>
 
                     <div className="detail-tags">
@@ -1018,7 +1028,7 @@ export default function App() {
               </div>
             </div>
 
-            {detailIsOwner && (
+            {detailCanManage && (
               <div className="detail-actions">
                 <button type="button" className="ghost-btn" onClick={handleEditDetail}>Редактировать</button>
                 <button type="button" className="danger-btn" onClick={handleDeleteDetail} disabled={deletePending}>

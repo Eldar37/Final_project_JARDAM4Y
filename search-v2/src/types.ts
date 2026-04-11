@@ -76,6 +76,7 @@ export type UserDTO = {
   id: number;
   name: string;
   email: string;
+  isAdmin: boolean;
 };
 
 export type FavoriteEntityType = 'vacancy' | 'profile';
