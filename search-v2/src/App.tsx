@@ -544,7 +544,7 @@ export default function App() {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <img src="/jardam4y-logo.svg" alt="JARDAM4Y by Enactus IUCA" className="brand-logo" />
+          <img src="/jardam4y-logo.png" alt="JARDAM4Y by Enactus IUCA" className="brand-logo" />
           <div className="brand-copy">
             <p>Социальная платформа услуг, вакансий и взаимопомощи.</p>
           </div>
@@ -1043,7 +1043,7 @@ export default function App() {
       <footer className="site-footer">
         <div className="footer-grid">
           <div className="footer-block footer-brand-block">
-            <img src="/jardam4y-logo.svg" alt="JARDAM4Y by Enactus IUCA" className="footer-logo" />
+            <img src="/jardam4y-logo.png" alt="JARDAM4Y by Enactus IUCA" className="footer-logo" />
             <p>JARDAM4Y - социальная платформа для поиска услуг, вакансий и прямой связи между людьми.</p>
           </div>
           <div className="footer-block">

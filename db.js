@@ -2,9 +2,24 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 const dbPath = path.join(__dirname, 'tokmaker.db');
+
+let resolveReady;
+let rejectReady;
+exports.whenReady = new Promise((resolve, reject) => {
+  resolveReady = resolve;
+  rejectReady = reject;
+});
+
 const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) console.error('DB Error:', err);
-  else console.log('Connected to SQLite database');
+  if (err) {
+    console.error('DB Error:', err);
+    rejectReady(err);
+    return;
+  }
+  console.log('Connected to SQLite database');
+  exports.init(() => {
+    resolveReady();
+  });
 });
 
 const VACANCY_SORT_COLUMNS = {
@@ -153,8 +168,19 @@ function buildProfileSearchQuery(filters = {}) {
   return { whereSql, params };
 }
 
-exports.init = () => {
-  db.run(`
+exports.init = (done) => {
+  const finish = (err) => {
+    if (err) {
+      console.error('Database schema init failed:', err);
+      rejectReady(err);
+      return;
+    }
+    console.log('Tables and indexes initialized');
+    if (typeof done === 'function') done();
+  };
+
+  db.serialize(() => {
+    db.run(`
     CREATE TABLE IF NOT EXISTS applications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -379,8 +405,16 @@ exports.init = () => {
     'CREATE INDEX IF NOT EXISTS idx_favorites_entity ON favorites(entity_type, entity_id)'
   ];
 
-  indexes.forEach(sql => db.run(sql));
-  console.log('Tables and indexes initialized');
+    indexes.forEach((sql, idx) => {
+      db.run(sql, (runErr) => {
+        if (runErr) {
+          finish(runErr);
+          return;
+        }
+        if (idx === indexes.length - 1) finish(null);
+      });
+    });
+  });
 };
 
 // ========== APPLICATIONS ==========

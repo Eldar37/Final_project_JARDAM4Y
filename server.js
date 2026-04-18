@@ -324,7 +324,7 @@ app.get('/employer.html', (req, res) => {
 });
 
 app.use((req, res, next) => {
-  const noStore = req.path.endsWith('.html') || req.path === '/brand-logo.svg' || req.path === '/jardam4y-logo.svg';
+  const noStore = req.path.endsWith('.html') || req.path === '/brand-logo.svg' || req.path === '/jardam4y-logo.png' || req.path === '/jardam4y-logo.svg';
   if (noStore) {
     res.set('Cache-Control', 'no-store');
   }
@@ -333,8 +333,6 @@ app.use((req, res, next) => {
 
 app.use(express.static(publicDir));
 app.use('/uploads', express.static(uploadsDir));
-
-db.init();
 
 app.post('/api/uploads/image', async (req, res) => {
   try {
@@ -1217,6 +1215,13 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found', path: req.path, method: req.method });
 });
 
-app.listen(PORT, () => {
-  console.log(`JARDAM4Y server running on http://localhost:${PORT}`);
-});
+db.whenReady
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`JARDAM4Y server running on http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
